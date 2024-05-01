@@ -1,0 +1,1047 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "3c2d27b9-7fd4-4ff4-96f0-ebf118c76f22",
+   "metadata": {},
+   "source": [
+    "## Instaling the required packages"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 66,
+   "id": "37594f0e-eb9c-4a63-9788-e3561fb0170d",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "True"
+      ]
+     },
+     "execution_count": 66,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "import os\n",
+    "import time\n",
+    "import tiktoken\n",
+    "import pandas as pd\n",
+    "from bs4 import BeautifulSoup\n",
+    "from selenium import webdriver\n",
+    "from langchain.prompts import PromptTemplate\n",
+    "from dotenv import load_dotenv, dotenv_values\n",
+    "from langchain.docstore.document import Document\n",
+    "from langchain_core.prompts import ChatPromptTemplate\n",
+    "from langchain_core.pydantic_v1 import BaseModel, Field\n",
+    "from langchain_openai import OpenAIEmbeddings, ChatOpenAI\n",
+    "from langchain_text_splitters import CharacterTextSplitter\n",
+    "from langchain.chains import LLMChain, StuffDocumentsChain\n",
+    "from langchain_community.document_loaders import TextLoader\n",
+    "from langchain.chains.summarize import load_summarize_chain\n",
+    "from langchain_community.callbacks import get_openai_callback\n",
+    "from langchain.text_splitter import RecursiveCharacterTextSplitter\n",
+    "from langchain.chains import MapReduceDocumentsChain, ReduceDocumentsChain\n",
+    "\n",
+    "load_dotenv()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "32428f04-7fe3-428f-a7ef-89232bd35be8",
+   "metadata": {},
+   "source": [
+    "#### Decide about loading new data"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 67,
+   "id": "8f35fd33-9814-4116-b63c-e48d9e4d0bfa",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# decide about using webscrapper data or reload past data\n",
+    "# from user_inputs import new_data_st, product, max_cus\n",
+    "\n",
+    "if new_data_st == \"No\":\n",
+    "    new_data = False\n",
+    "else:\n",
+    "    new_data = True"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "b53a48a7-8ad9-430a-8453-d21452de08b2",
+   "metadata": {},
+   "source": [
+    "#### Setting up small vs. large content code togg"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 68,
+   "id": "4574b0d1-2ad5-4ef1-9a1b-222b2739c3bc",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Setting up logical code block execution toggle\n",
+    "class StopExecution(Exception):\n",
+    "    def _render_traceback_(self):\n",
+    "        pass"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "7b91530e-1b2b-4591-a405-defa67f5fd1b",
+   "metadata": {},
+   "source": [
+    "#### Invoking Amazon Scrapper"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 69,
+   "id": "87b7bff8-0fe9-42a9-accd-1b753e36e945",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class AmazonScraper:\n",
+    "    __wait_time = 0.5\n",
+    "\n",
+    "    __amazon_search_url = 'https://www.amazon.com/s?k='\n",
+    "    __amazon_review_url = 'https://www.amazon.com/product-reviews/'\n",
+    "\n",
+    "    __star_page_suffix = {\n",
+    "        5: '/ref=cm_cr_unknown?filterByStar=five_star&pageNumber=',\n",
+    "        4: '/ref=cm_cr_unknown?filterByStar=four_star&pageNumber=',\n",
+    "        3: '/ref=cm_cr_unknown?filterByStar=three_star&pageNumber=',\n",
+    "        2: '/ref=cm_cr_unknown?filterByStar=two_star&pageNumber=',\n",
+    "        1: '/ref=cm_cr_unknown?filterByStar=one_star&pageNumber=',\n",
+    "    }\n",
+    "\n",
+    "    def __init__(self):\n",
+    "        pass\n",
+    "\n",
+    "    def __get_amazon_search_page(self, search_query: str):\n",
+    "        # setting up a headless web driver to get search query\n",
+    "        options = webdriver.ChromeOptions()\n",
+    "        options.add_argument(\"--headless=new\")\n",
+    "        driver = webdriver.Chrome(options=options)\n",
+    "\n",
+    "        url = AmazonScraper.__amazon_search_url + '+'.join(search_query.split())\n",
+    "        driver.get(url)\n",
+    "        driver.implicitly_wait(AmazonScraper.__wait_time)\n",
+    "            \n",
+    "        html_page = driver.page_source\n",
+    "        driver.quit()\n",
+    "\n",
+    "        return html_page\n",
+    "\n",
+    "    def __get_closest_product_asin(self, html_page: str):\n",
+    "        soup = BeautifulSoup(html_page, 'lxml')\n",
+    "\n",
+    "        # data-asin grabs products, while data-avar filters out sponsored ads\n",
+    "        listings = soup.findAll('div', attrs={'data-asin': True, 'data-avar': False})\n",
+    "\n",
+    "        asin_values = [single_listing['data-asin'] for single_listing in listings if len(single_listing['data-asin']) != 0]\n",
+    "\n",
+    "        assert len(asin_values) > 0\n",
+    "\n",
+    "        return asin_values[0]\n",
+    "\n",
+    "    def __get_rated_reviews(self, url: str):\n",
+    "        # setting up a headless web driver to get search query\n",
+    "        options = webdriver.ChromeOptions()\n",
+    "        options.add_argument(\"--headless=new\")\n",
+    "        driver = webdriver.Chrome(options=options)\n",
+    "\n",
+    "        driver.get(url)\n",
+    "        driver.implicitly_wait(AmazonScraper.__wait_time)\n",
+    "\n",
+    "        html_page = driver.page_source\n",
+    "        driver.quit()\n",
+    "\n",
+    "        soup = BeautifulSoup(html_page, 'lxml')\n",
+    "        html_reviews = soup.findAll('div', attrs={\"data-hook\": \"review\"})\n",
+    "\n",
+    "        reviews = []\n",
+    "        # extract text from various span tags and clean up newlines in their strings\n",
+    "        for html_review in html_reviews:\n",
+    "            name = html_review.find('span', class_='a-profile-name').text.strip()    \n",
+    "\n",
+    "            # Amazon's format is \"x.0 stars out of 5\" where x = # of stars\n",
+    "            rating = html_review.find('span', class_='a-icon-alt').text.strip()[0]\n",
+    "\n",
+    "            review_body = html_review.find('span', attrs={'data-hook': 'review-body'}).text.strip()\n",
+    "\n",
+    "            reviews.append({'customer_name': name, 'rating': int(rating),'review': review_body})\n",
+    "\n",
+    "        return reviews\n",
+    "\n",
+    "    def __get_reviews(self, asin: str, num_reviews: int):\n",
+    "        if num_reviews % 5 != 0:\n",
+    "            raise ValueError(f\"num_reviews parameter provided, {num_reviews}, is not divisible by 5\")\n",
+    "\n",
+    "        base_url = AmazonScraper.__amazon_review_url + asin\n",
+    "        overall_reviews = []\n",
+    "\n",
+    "        for star_num in range(1, 6):\n",
+    "            url = base_url + AmazonScraper.__star_page_suffix[star_num]\n",
+    "\n",
+    "            page_number = 1\n",
+    "            reviews = []\n",
+    "            reviews_per_star = int(num_reviews / 5)\n",
+    "\n",
+    "            while len(reviews) <= reviews_per_star:\n",
+    "                page_url = url + str(page_number)\n",
+    "\n",
+    "                # no reviews means we've exhausted all reviews\n",
+    "                page_reviews = self.__get_rated_reviews(page_url)\n",
+    "\n",
+    "                if len(page_reviews) == 0:\n",
+    "                    break\n",
+    "\n",
+    "                reviews += page_reviews\n",
+    "                page_number += 1\n",
+    "\n",
+    "            # shave off extra reviews coming from the last page\n",
+    "            reviews = reviews[:reviews_per_star]\n",
+    "            overall_reviews += reviews\n",
+    "\n",
+    "        return overall_reviews\n",
+    "\n",
+    "    def get_closest_product_reviews(self, search_query, num_reviews, debug=False):\n",
+    "        if debug:\n",
+    "            start = time.time()\n",
+    "\n",
+    "        html_page = self.__get_amazon_search_page(search_query)\n",
+    "        product_asin = self.__get_closest_product_asin(html_page)\n",
+    "        reviews = self.__get_reviews(asin = product_asin, num_reviews = num_reviews)\n",
+    "\n",
+    "        if debug:\n",
+    "            end = time.time()\n",
+    "            print(f\"{round(end - start, 2)} seconds taken\")\n",
+    "\n",
+    "        return reviews"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "7313004e-80ad-4ec6-b819-b68bd1cc1706",
+   "metadata": {},
+   "source": [
+    "## New Product Selection"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 70,
+   "id": "4721f1ed-79fd-44c0-9af5-0f4ba4ab17a5",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "266.49 seconds taken\n",
+      "[{'customer_name': 'Kristin', 'rating': 1, 'review': 'Obviously for the price I shouldn’t have been surprised but it’s a limbo pole, shouldn’t it work for 15 bucks??? The poles arrived broken and missing pieces. We tried to tape them and put them up and they just kept falling over. The horizontal pole won’t even stay put. Don’t waste your money, use a stick instead. We didn’t even use it for the party.'}, {'customer_name': 'Ruth L. Tagg', 'rating': 1, 'review': 'Of course! Here\\'s the edited version:\"I was really disappointed when I ordered this for a party and discovered that some parts were missing, with no instructions included. Despite our efforts to make it work, it would have been much smoother if everything had been there.\"'}, {'customer_name': 'MICHI', 'rating': 1, 'review': \"I tried to get it last min for a birthday party..It arrived the day of and with my luck no instructions.  Unfortunately I didn't have time to figure it out and didn't end up using it.\"}, {'customer_name': 'Kristen', 'rating': 1, 'review': 'I ordered this for an end-of-year classroom party. Unfortunately, I didn’t realize until the day of and upon building it that it was already broken. Even if a piece hadn’t of been, it’s extremely flimsy and would only work if 2 adults were holding it together the entire time. Super disappointing as I know the kids would’ve loved it. I did return.'}, {'customer_name': 'Pam', 'rating': 1, 'review': \"I'm glad I ordered this ahead of time, because not only did it came broken, but some pieces are missing 😪  I started the refund process, Hopefully I get it back in time to order a new one for my BBQ next Friday.\"}, {'customer_name': 'Ashlee W.', 'rating': 1, 'review': 'I returned this product because it tipped over very easily and I could not get the limbo stick to stay on the hooks. It looks like a fun game, but I definitely think it needs to be more durable.'}, {'customer_name': 'Christina', 'rating': 1, 'review': 'I bought this for Easter activities. I received it today and to my disappointment it’s very cheap for $30 I was so excited to open it and check it out with the kids. Well we didn’t even get to play because as I’m setting it up the red pvc split as I was putting it on the connector. I’m it might be ok let’s move on. I’m building the stand the blue pvc is so flimsy it made the white mark right before it breaks. Very disappointed.'}, {'customer_name': 'Sarah Sorrells', 'rating': 1, 'review': \"When put together, the bar has nothing to hold it in place it just sits on top of the brackets that clip onto the side bars so the bar you limbo under constantly falls off even if it isn't hit while doing the limbo!\"}, {'customer_name': 'Eric K.', 'rating': 1, 'review': 'This product is junk, the poles were bent and one cracked the first time a kid bumped into it. Very poor quality'}, {'customer_name': 'Nickie', 'rating': 1, 'review': 'We wanted to love it. We used it for 5 min and as soon as the pole hit the ground it cracked. Crossbar tends to fall on its own, without bumping. We had to super glue the crossbar to be able to use it for our party. Sadly, it did not last long.'}, {'customer_name': 'Amazon Customer', 'rating': 1, 'review': \"Product came used with dirt marks and missing pieces. I brought this out for family fun and had to make due with what was provided because kids were overly excited when they saw me bring it out. It would've broken their hearts if I had to tell them I was putting it back up and they couldn't play. Highly unsatisfied with this purchase. Got it for the whole family but due to its inadequacy only a few was able to play with it smh.\"}, {'customer_name': 'Jennifer', 'rating': 1, 'review': 'I try to put the parts together and they continue to fall apart. So me & my sister ended up holding the poles and do away with the sides that supposed to hold the pole on top. Waste of money'}, {'customer_name': 'LATESA ROGERS', 'rating': 1, 'review': 'The item itself was not damage but I did not have all the pieces to put the pole together that you go under.'}, {'customer_name': 'Carmen', 'rating': 1, 'review': \"Unsatisfied with this item. Some of the plastic poles didn't not properly fit together and it wasn't too functional. The plastic pieces that holds the red limbo bar broke on one side. Well that's the end of the game when that happens. It got thrown out the first night. I would not recommend this game and would prefer a refund if possible\"}, {'customer_name': 'Broke while we were setting up plastic to thin broke quickly we couldn’t even use it', 'rating': 1, 'review': 'Was supposed to be used for a birthday party but while setting up it wasn’t support up and plastic was thin it broke'}, {'customer_name': 'ksmom', 'rating': 1, 'review': 'We bought this for my daughters birthday and used it once. We started taking it apart to put it away and the limbo stick was already cracked and broken .'}, {'customer_name': 'Ms. Wonderful', 'rating': 1, 'review': 'Like: the product arrived a day earlyDislike: way too many tiny pieces, not stable, very flimsy. Will toss it'}, {'customer_name': 'shinin f martinez', 'rating': 1, 'review': 'All the connectors didn’t fit, too small or large. Plastic was cracked:( couldn’t be used .. I even tried to tape it since I bought it for a birthday and it couldn’t stand straight. So disappointed'}, {'customer_name': 'Natalie Holmes', 'rating': 1, 'review': \"The game was missing pieces. Didn't enjoy because we couldn't put it together. Total waste\"}, {'customer_name': 'Amazon Customer', 'rating': 1, 'review': 'Didn’t even come with all the parts. Couldn’t set it up and it was for a kids party and now I don’t have the game they were excited for.'}, {'customer_name': 'Candycane', 'rating': 1, 'review': 'Was missing parts for the legs'}, {'customer_name': 'Amazon Customer', 'rating': 1, 'review': 'It was so wobbly and I duct taped it together, there are no instructions at all but it was easy enough to figure out. The limbo pole can not be secured to the poles that move up and down so it easily falls. We tried it for a birthday party and immediately threw it in the trash.'}, {'customer_name': 'Bittersweet Pooh', 'rating': 1, 'review': 'Bought for a school field day.  It was broken before the event ended, and it was only 3 hours long.'}, {'customer_name': 'PB', 'rating': 1, 'review': 'Cheap quality. It doesn’t stand on its own even on a cemented surface. It also came with some missing parts. The plastic pipes are so cheap quality, one of the pipes broke even though I was handing it carefully. Don’t waste your money.'}, {'customer_name': 'Jerome Fields', 'rating': 1, 'review': 'It is difficult for me to write about the sturdiness durability of this product as I receive the damage. Very unfortunate because I wanted to be a surprise for my daughter on her birthday and did not open the package until today.'}, {'customer_name': 'JC', 'rating': 1, 'review': 'Cheap and poorly made. Bar doesn’t stay on.I do not recommend this purchase.'}, {'customer_name': 'Marissa', 'rating': 1, 'review': 'Nothing would stay together. The bar just kept rolling off'}, {'customer_name': 'Amazon Customer', 'rating': 1, 'review': \"flimsy and impossible to use. It was easy to assemble but it isn't a usable product.\"}, {'customer_name': 'maria rodriguez', 'rating': 1, 'review': 'Very disappointed!  One of the sticks bent the first time we used it. Cheap not good quality'}, {'customer_name': 'Annette Booker Tate', 'rating': 1, 'review': 'this product did not come with enough connectors, so therefore this was not useable for me, I could not use it at my party as planned, sad. I need to return this item or receive more connectors.'}, {'customer_name': 'Bridget', 'rating': 2, 'review': 'So I bought this for a preschool class party, and was thinking could use for the party and with my kids for occasional backyard game. The one we received was clearly a returned item - for the hinge that goes at the bottom of the stand we found mud caked in it. I would have been willing to look past that - but it was incredibly hard to slide the poles into the various white hinges. It’s not practical to assemble and disassemble. I will say the limbo stick does stay pretty good when assembled and the clasps to move it up and down were easy. But we decided best to return and look for another limbo set. For the cost I couldn’t justify dealing with the assembly each time. Plus not thrilled about getting returned one.'}, {'customer_name': 'Katie Anderson', 'rating': 2, 'review': \"I used this for one day for field day at school for grade k-5. It was a little windy and the stick kept falling off. Volunteers helped to keep it on but that kinda defeated the purpose of finding out who could go the lowest. Many didn't really care but if it was.ro be competitive then this would not work well. Also the clip broke. I know it was used for 2.5 hrs and then for another 2 hrs and 10 minutes and it was fun but I will have to figure out how to fix the clip. I guess it was worth the money to not have to make my own.\"}, {'customer_name': 'Elizabeth', 'rating': 2, 'review': \"This would be a great product if all the connector fit in the holes. Some holes seem to be to small for certain connectors and could slide all the way in. I tried with different connectors and none worked. They barely hold on on the top but didn't securely go all the way in as in the instructions.\"}, {'customer_name': 'Amazon Customer', 'rating': 2, 'review': 'pole that is to be moved up and down has to be held in place. The way the legs are positioned it is very easy to knock over when kids are crawling under. would not purchase this one again.'}, {'customer_name': 'Tim', 'rating': 2, 'review': 'The connection pieces are too big for the pieces they’re supposed to connect to, and when I tried to put it together one of the pieces broke and sliced my finger.'}, {'customer_name': 'Stone', 'rating': 2, 'review': 'The game is not durable; it broke the first time used.'}, {'customer_name': 'Carolyn Weber', 'rating': 2, 'review': 'Good idea, but broke in the first 24hrs of use'}, {'customer_name': 'Abigail Renee', 'rating': 2, 'review': 'Easy to put together but my package was missing 2 of the inner joining connectors. Very disappointed with that since I purchased for kids and adults to be able to play limbo.'}, {'customer_name': 'Juanita Smith', 'rating': 2, 'review': 'Easy to put together but very flimsy, fell apart easily.'}, {'customer_name': 'Dee Dee', 'rating': 2, 'review': 'I purchased this product for a camp I work at and was disappointed when there were pieces missing which prevented me fully completing its set-up for use. After exchanging it for a new box, the replacement box STILL had missing connector pieces! Very disappointed.'}, {'customer_name': 'Kristin', 'rating': 2, 'review': 'very light weight, falls over constantly. The clamps used to move the rod down pops off and does not stay in place, also no secure way to hold the rod in place which then causes the rod to roll off. Do not recommend,'}, {'customer_name': 'Nicole', 'rating': 2, 'review': 'But the bar doesn’t stay. Any wind or slight movement and the bar falls offKids can’t get it to stab on there when playing'}, {'customer_name': 'Leci', 'rating': 2, 'review': 'It feels and looks cheap.'}, {'customer_name': 'elijah', 'rating': 2, 'review': 'Way to complicated to put togetherTo much work. Use a broom handle and 2 adults'}, {'customer_name': 'Toya', 'rating': 2, 'review': 'It was missing a piece when I get it. By the time I realized it, it was too late to send it back!!'}, {'customer_name': 'Nick and Nina', 'rating': 2, 'review': 'Product was dirty and seemed like it was a used item and resold'}, {'customer_name': 'Shopaholic', 'rating': 2, 'review': 'This item would not “stand upright” if even slightly touched, the entire contraption would fall. The holders for the actual limbo stick were clips. Love the concept of this but they need to improve on the durability and quality as several pieces bent and it wouldn’t stay upright.'}, {'customer_name': 'Amazon Customer', 'rating': 2, 'review': 'This is not user friendly.  Not easy to put together'}, {'customer_name': 'Amazon Customer', 'rating': 2, 'review': 'It was difficult to put together. The pieces were right fitting- which is good, but hard. Once it was put together it just seemed flimsy. It broke easily. Granted, I let children take charge of it- but it IS a product for kids.'}, {'customer_name': 'Mika', 'rating': 2, 'review': 'I’m completely disappointed with this limbo set. For the price I expected better quality and this thing is so cheap and flimsy! The kids still had fun at my daughters birthday party but it was a let down for me.'}, {'customer_name': 'Alijoy Milele', 'rating': 2, 'review': 'Not the best quality'}, {'customer_name': 'T.P.', 'rating': 2, 'review': 'Wouldn’t stay up. The kids ended up using the sticks a swords.'}, {'customer_name': 'Angelica Bonilla', 'rating': 2, 'review': 'Looks like I recieved a previously returned item because it came cracked'}, {'customer_name': 'Ida Spann', 'rating': 2, 'review': 'It flimsy but service it’s purpose my family had fun'}, {'customer_name': 'Ken hines', 'rating': 2, 'review': 'Legs cracked in multiple places after 3rd use. Make one out of PVC which held up much better'}, {'customer_name': 'Diana', 'rating': 2, 'review': \"I used this product for a bday party. Thered tube falls very easily. I won't recommend this product.\"}, {'customer_name': 'Amazon Customer', 'rating': 2, 'review': 'Poor quality, pieces cracked and wouldn’t come apart'}, {'customer_name': 'Sandra', 'rating': 2, 'review': \"I wouldn't recommend.  Ok for a one time use, indoor party game .\"}, {'customer_name': 'Felix Cabrera', 'rating': 2, 'review': 'Missing pieces'}, {'customer_name': 'Asm', 'rating': 2, 'review': 'Fun but very cheap broke during the party.'}, {'customer_name': 'Marji', 'rating': 3, 'review': 'I used this at a State Fair booth where there was plenty of activity and a lot of playing in our booth,  with hula hoops and corn hole as well.  We were putting it back together severalbtimes a day, after the first couple of days. We had to tape the pole for this several times, and after an 11 day fair, threw it away.  But while we had it, the kids loved it.'}, {'customer_name': 'LaDonna M Richards', 'rating': 3, 'review': 'Really cheap and not too sturdy… bar does hold up without a hand to it especially with any little wind. We tossed it!'}, {'customer_name': 'Caleb Mayhue', 'rating': 3, 'review': 'This product was cute for the occasion but not the sturdiest when ppl go under.'}, {'customer_name': \"Annie  R. O'Bryant\", 'rating': 3, 'review': 'Will not stand up without assistanceVery unsatisfied'}, {'customer_name': 'gloria', 'rating': 3, 'review': 'The assembly was not as easy as expected going by the pictures on the box. All pieces did not fit securely in each spot.  I could not figure how to uphold the limbo pole. Was missing  the stands to stand up on its own. Only one piece inside.  It was not a cross bottom stand.'}, {'customer_name': 'Missa', 'rating': 3, 'review': 'I was super excited to get this for my sons bday party with friends. Classic.This was fairly difficult to put pieces together so I thought it would be fairly sturdy. The actual limbo stick (red) broke within 30 minutes of kids playing. The white caps that go on the end of the tubes do not stay bc they are too big.Very disappointed and now I must go buy a long piece of obvio pipe so the kids can continue to play.'}, {'customer_name': 'J. Ramiro Tovar', 'rating': 3, 'review': 'no es facil de armar, son muchas piezas y esmuy fragil, se quebro antes de usarlo por primera vez'}, {'customer_name': 'Monikpisa', 'rating': 3, 'review': 'While putting it together, the plastic tubes broke. Some attached easily than other tubes. But it does the job. The red pole is hard to keep steady. Two people have to hold it in place so it doesn’t fall.'}, {'customer_name': 'val', 'rating': 3, 'review': \"We played this game on carpeting with supervision and the kids loved it and it comes with a storage bag. I give it 3 Stars the quality of the plastic is low and how long it'll last outside on the grass.\"}, {'customer_name': 'Amy', 'rating': 3, 'review': 'Fun item, but the one I received had clearly been used and returned as the pieces were dirty and plastic scuffed in places.'}, {'customer_name': 'Keri DeG.', 'rating': 3, 'review': 'I like the set - it’s cheap so be careful - I snapped one of the poles trying to connect it. My biggest complaint? I only got 8 out of 9 connectors so we have a much shorter pole.'}, {'customer_name': 'K Estep', 'rating': 3, 'review': 'This works well for adults that will use the product as intended or for children with close supervision. For children d without adults monitoring game flow the uses rapidly digress into sword fighting and pole vaulting, etc. This toy is not sturdy enough for that kind of abuse/alternative uses.'}, {'customer_name': 'Courtney LaPole', 'rating': 3, 'review': 'Quality of the plastic is not ideal. Upon first setup, a few tubes cracked. It was still able to be used, and lots of fun!'}, {'customer_name': 'Rebecca Ray', 'rating': 3, 'review': 'A piece was missing that held up the limbo pole.'}, {'customer_name': 'Cordonva', 'rating': 3, 'review': 'Fun game but , it takes a while to assemble and it took two adults to hold each side of the limbo stick because it kept rolling off'}, {'customer_name': 'Amazon Customer', 'rating': 3, 'review': 'It came in a box. My other limbo came in a duffle bag in a box for storage.That’s the only thing i didn’t like. Boxed rip and of wet, tear Apart. I wish it had its own storage. Besides that it was ok.'}, {'customer_name': 'scotty', 'rating': 3, 'review': 'Not very stable at all its easy to setup just a lot of short little pieces of pvc type pieces, also not very durable. The kids did have a fun time with it though.'}, {'customer_name': 'Beverly A.', 'rating': 3, 'review': 'It was okay.. I used this for our work Christmas party. It was a little hard to assemble getting the holes to align properly. You really have to put your elbow in it. Otherwise, it worked well for it’s purpose.'}, {'customer_name': 'Melissa', 'rating': 3, 'review': 'It was ok but didn’t last long one of the parts snapped pretty quickly'}, {'customer_name': 'Yesenia Miranda', 'rating': 3, 'review': 'Fun but was missing a few pieces. Good for a one time use as it fell apart and poles cracked.'}, {'customer_name': 'Mareline', 'rating': 3, 'review': 'Not the best for outdoors. It’s not durable or sturdy either as the wind would push it down and damage the pole.'}, {'customer_name': 'Tori Anderson', 'rating': 3, 'review': 'This product was sturdy and was missing pieces. It had to be lowered in order to be used.'}, {'customer_name': 'corinthia', 'rating': 3, 'review': \"This game was very difficult to assemble, the instructions weren't very helpful either. I had to hold the limbo stick myself because the stick kept falling out of place.\"}, {'customer_name': 'T. Lo', 'rating': 3, 'review': 'Very thin plastic and could break easily. Overall the product was used well for children.'}, {'customer_name': 'Mrs. Copple', 'rating': 3, 'review': 'We received this kit, and it was missing a connector. We had to tape it up to use.'}, {'customer_name': 'Amazon Customer', 'rating': 3, 'review': 'Missing a connector on red pole that goes across to lower.  Please send'}, {'customer_name': 'Amazon Customer', 'rating': 3, 'review': 'Pieces fall down easily.'}, {'customer_name': 'April Rowland', 'rating': 3, 'review': \"The limbo bar won't stay on bar ...frustrating but, will keep working on it\"}, {'customer_name': 'Pop and mama from Neverland', 'rating': 3, 'review': \"It's for the children,  adults cannot play\"}, {'customer_name': 'Becky', 'rating': 3, 'review': 'Ok for use with solid floor surface'}, {'customer_name': 'Breanna', 'rating': 4, 'review': 'It was a little hard to snap the tubes into one another for me but my boyfriend was able to help. My kids enjoyed it, we ordered it for a birthday party activity. One of the clips broke when it fell over but was able to continue using it.'}, {'customer_name': 'Jesse D.', 'rating': 4, 'review': 'The limbo set is nice and compact. Comes with a great little carry case.  Tubes are good quality and easy to assemble. The clips could be better but does the job. Worth the purchase. Also raises high for any age.'}, {'customer_name': 'Amazon Customer', 'rating': 4, 'review': 'Have this set up in the backyard. We used 2 pound ankle weights to keep it sturdy. Wish the clips for the movable cross bar were under hooks because it falls off the clips easily but super fun to use'}, {'customer_name': 'vickie samples', 'rating': 4, 'review': 'I would have given this 5 stars except I received 2of the same sections with the 20” marks instead of the middle section with the correct inch markings'}, {'customer_name': 'Elizabeth', 'rating': 4, 'review': 'Bought this for a end of year class party. It was a hit. Although it didn’t come with an instruction, it was very easy to semble. It came with a bag so I can dissemble it after the class and fit the parts into a bag that can be easily put away.'}, {'customer_name': 'Rayna', 'rating': 4, 'review': 'Works well once its together but its a bit complicated to piece together, the instructions arent very specific so it takes a while but if you have the patience you can figure it out.'}, {'customer_name': 'Jessica', 'rating': 4, 'review': \"Would not recommend for heavy use. I had to use gorilla glue on all of the connections as they were breaking very easily. We use in a kids' gym. Would be perfect for home or infrequent use or with heavy adult supervision.\"}, {'customer_name': 'Reagon', 'rating': 4, 'review': 'The kids had a ball with it, the only thing about it we didn’t like was the the limbo stick falls off too easily'}, {'customer_name': 'Taylor Reynolds', 'rating': 4, 'review': 'The students love to have this activity during recess. The only complaint is how sturdy the limbo bar is.'}, {'customer_name': 'jeannie', 'rating': 4, 'review': 'So I ordered this for a family get together for the kids.  What a blast they had.  It’s light weight ~. But was a ton of fun.  We put on limbo music and I had inexpensive fun prizes.  Glad I bought it.  Comes with a bag for storage'}, {'customer_name': 'Aduse Aboagye', 'rating': 4, 'review': \"every one wanted to play with this, however i had to tape the red pole to the peg because it would stay. the slighted breeze would make it fall. I didn't use much tape so that it would still fall if the person couldn't under. Pretty much not very sturdy\"}, {'customer_name': 'karen nance', 'rating': 4, 'review': 'Super cute idea!  My kids love it but I didn’t realize how much room it would take up.  Assembled in about 5 minutes.  If you bump it too hard the pole will fall off.'}, {'customer_name': 'All Eyez on she!!', 'rating': 4, 'review': 'We had a blast with this, I purchased it for my husbands Caribbean theme birthday party. The only downfall is the pole with slide off somewhat easily.'}, {'customer_name': 'M. Krile', 'rating': 4, 'review': 'My kids like playing Limbo, and the boys especially like putting it together! We play with it indoors when the weather not good. It does fall over if bumped, though, so it needs a purely flat surface.'}, {'customer_name': 'Dani', 'rating': 4, 'review': 'Very flimsy and not good against any type of weather such as rain or light wind. Broke very easily but served its purpose for the night of my beach party'}, {'customer_name': 'Joe N. Hernandez', 'rating': 4, 'review': 'My students love the limbo set. I had to tape the connections using electrical tape to keep the sections from separating. I bought crutch tips to keep the base stabilized.'}, {'customer_name': 'Matthew', 'rating': 4, 'review': \"Got this for my daughter's birthday as part of our games for the kids and the kids loved it. Just a little wobbly but works great\"}, {'customer_name': 'andrea', 'rating': 4, 'review': 'Kinda hard to put together but it was a hit at my sons birthday party. For the price tho I can’t complain at all.'}, {'customer_name': 'Lano74', 'rating': 4, 'review': 'Could have a little more weight if its windy could be a hastle'}, {'customer_name': 'laniece  williams', 'rating': 4, 'review': 'A bit flimsy. Had to glue end pieces onto the rods. Other than that it’s ok.'}, {'customer_name': 'Nata. V.', 'rating': 4, 'review': 'This is a classic game, some tops were constantly falling out.'}, {'customer_name': 'catherine Lowden', 'rating': 4, 'review': 'Hard to put the tubing together but the structure is sturdy and works well! Thank'}, {'customer_name': 'Nicole P.', 'rating': 4, 'review': 'Great fun for a group of 15year olds. Lots of laughs.'}, {'customer_name': 'Cindy', 'rating': 4, 'review': 'Nice purchase, fairly sturdy.'}, {'customer_name': 'Tiger', 'rating': 4, 'review': 'Works but not sturdy'}, {'customer_name': 'Christine', 'rating': 4, 'review': 'Kids had a blast playing with it. Although I wish it was a bit sturdier.'}, {'customer_name': 'AliV', 'rating': 5, 'review': \"The only thing I didn't like about this product is how light it is and doesn't really hold up. other than that, it serves the purpose. It was also very easy to assemble.\"}, {'customer_name': 'Ladipo Harris', 'rating': 5, 'review': 'We used this for our field.day and have allowed a preschool to borrow it and it still held up immaculately!'}, {'customer_name': 'Michelle', 'rating': 5, 'review': 'Love this product! It was a huge hit in my classroom and kept my preschool class entertained for ages! It sees sturdy and easy to set up as well'}, {'customer_name': 'Don', 'rating': 5, 'review': \"It's a great game and my kids love it!! I bought this with the idea of giving it as a gift to one of my sons, but upon opening it I decided to give it a try and see how I could do....well lets just say that I'm not 16 anymore. LOLIt's a very sturdy unit and looks like it will last for a very long time.It comes with it's own carry bag to carry all the pieces and throw in a little bit of limbo music and you have a room filled with laughter from kids and adults alike.\"}, {'customer_name': 'Crystal', 'rating': 5, 'review': 'I bought this product for an upcoming LUAU BBQ. I set it up immediately after delivery to test it out. It was super easy and super fast to set up. I didn’t need any help. Very sturdy. Plus it came with a storage bag. I loved that!! Can’t wait to enjoy it with the family!!'}, {'customer_name': 'Tina Ainsworth', 'rating': 5, 'review': 'Easy to assemble and to move around.'}, {'customer_name': 'dana ross', 'rating': 5, 'review': 'My granddaughter is having so much fun with this'}, {'customer_name': 'Larry K.', 'rating': 5, 'review': 'Goes together easily, plus provided a lot of fun for kids at a luau party!'}, {'customer_name': 'J. Colon', 'rating': 5, 'review': \"I bought this as part of their Christmas gifts for my son's girlfriend's 10 year old daughter and 7 year old son. They will soon be moving into a new home with a big back yard. They and my 8 year old granddaughter (from another son) had such a blast playing with it inside my ginormous family room! One of my sons even tried it, but he was too tall and fell flat on his rump! He wasn't hurt and we all had a great laugh with that!\"}, {'customer_name': 'bassmanbw', 'rating': 5, 'review': 'A lot of fun!!!'}, {'customer_name': 'Kerns Gang', 'rating': 5, 'review': \"I bought this for my daughter's school for field day. The kids all had a great time and I planned on keeping it but I let her teacher have it so future classes can have fun with it too.\"}, {'customer_name': 'Nash link', 'rating': 5, 'review': 'Overall great product. The kids in my class love it and have enjoyed it. The only issue I had is some of the parts fit really tight so it takes a little more muscle than expected to put pieces together and take apart. BUT DO NOT LET THAT STOP YOU FROM BUYING. It’s an awesome product, I suggest maybe getting a little cork grease which you can get for a couple of dollars.'}, {'customer_name': 'Amazon Customer', 'rating': 5, 'review': 'Awesome game!!!'}, {'customer_name': 'GG', 'rating': 5, 'review': 'We were looking for something different for my 12 year old granddaughters birthday party and this was it. It was fun for guests of all ages.'}, {'customer_name': 'Kindle Customer', 'rating': 5, 'review': 'LIMBO was a hit with everyone! I actually bought this for my younger children; however, my teenagers (and, their friends) like to Limbo ALL the time! Product arrived, just as described and was super easy to assemble.  It was just as easy to disassemble & comes with a nice drawstring bag to keep all the parts together. I would definitely recommend!'}, {'customer_name': 'Tia michele', 'rating': 5, 'review': 'This was an over all awesome purchase, I highly recommend. Easy to assemble, studry, easy to dissemble'}, {'customer_name': 'Akilah Forbes', 'rating': 5, 'review': 'My family had a picnic and we did the limbo. What fun we had. The kids and adults enjoyed it'}, {'customer_name': 'Lauren Smith', 'rating': 5, 'review': 'Kids had a blast'}, {'customer_name': 'Asa Allen', 'rating': 5, 'review': 'Family fun'}, {'customer_name': 'Kayla O', 'rating': 5, 'review': 'This limbo set was exactly what I was looking for. We used it during our end of the school year field day, and our students loved it. It was easy to assemble and was sturdy.'}, {'customer_name': 'Joyce Coffey', 'rating': 5, 'review': 'I knew it was plastic but did wish it would be a little sturdier. Maybe a weighted bottom on the side poles would have helped.The grandkids liked it!  That is what matters!'}, {'customer_name': 'Rossygal', 'rating': 5, 'review': 'Ordered this and due to the rain we weren’t able to play with it until now. The kids love it.'}, {'customer_name': 'Fe Diz', 'rating': 5, 'review': 'I used it for our teacher’s appreciation day. My staff and bosses had fun. Thank you.'}, {'customer_name': 'Amazon Customer', 'rating': 5, 'review': 'This gift was a great gift for preschoolers.'}, {'customer_name': 'Leia Signs', 'rating': 5, 'review': 'Bought for a halloween party (all adults) and it worked petfectly!! However, our backs did not enjoy lol. Lots of fun though!'}, {'customer_name': 'Mothergoose', 'rating': 5, 'review': 'I used this item fir a luau party at the beach. Everyone enjoyed playing the limbo!'}, {'customer_name': 'MT', 'rating': 5, 'review': 'the weather will take its toll over time'}, {'customer_name': 'zaida flores', 'rating': 5, 'review': 'Just like described'}, {'customer_name': 'beverly amsterdam', 'rating': 5, 'review': 'Great fun for my grandkids 3,4,5 & adults too.Put the old song on Limbo Rock for my grandkidsto play while having fun.'}, {'customer_name': 'EJ', 'rating': 5, 'review': \"I liked the idea but expected it to easy for me to assemble but it wasn't as sturdy as I expected.\"}]\n"
+     ]
+    }
+   ],
+   "source": [
+    "if new_data:\n",
+    "    search_query = str(product)   # 'premier protein shake, chocolate'\n",
+    "    scraper = AmazonScraper()\n",
+    "    reviews = scraper.get_closest_product_reviews(search_query, num_reviews = max_cus, debug=True)\n",
+    "    print(reviews)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 71,
+   "id": "4e9f2cd6-8651-4ebe-9ef9-de0f2f0aec1f",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Transfering the webscrapped data into a dataframe\n",
+    "if new_data:\n",
+    "    df = pd.DataFrame.from_dict(reviews)\n",
+    "    df.sort_values(by=[\"rating\"], ascending=False, inplace=True)\n",
+    "    df.reset_index(inplace=True)\n",
+    "    df.to_pickle(\"amazon_reviews_df\")  # storing df to ease its future usage\n",
+    "    df.head(5)\n",
+    "else:\n",
+    "    df = pd.read_pickle(\"amazon_reviews_df\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "2ede4960-0127-4f6b-b4e9-7f88ede3381f",
+   "metadata": {},
+   "source": [
+    "### Preparing Review Data for Display "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 72,
+   "id": "be808b46-5e01-4360-a8d5-194de351deb9",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: center;\">\n",
+       "      <th></th>\n",
+       "      <th>index</th>\n",
+       "      <th>customer_name</th>\n",
+       "      <th>rating</th>\n",
+       "      <th>review</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>145</td>\n",
+       "      <td>EJ</td>\n",
+       "      <td>5</td>\n",
+       "      <td>I liked the idea but expected it to easy for me to assemble but it wasn't as sturdy as I expected.</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>130</td>\n",
+       "      <td>Kindle Customer</td>\n",
+       "      <td>5</td>\n",
+       "      <td>LIMBO was a hit with everyone! I actually bought this for my younger children; however, my teenagers (and, their friends) like to Limbo ALL the time! Product arrived, just as described and was super easy to assemble.  It was just as easy to disassemble &amp; comes with a nice drawstring bag to keep all the parts together. I would definitely recommend!</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>116</td>\n",
+       "      <td>AliV</td>\n",
+       "      <td>5</td>\n",
+       "      <td>The only thing I didn't like about this product is how light it is and doesn't really hold up. other than that, it serves the purpose. It was also very easy to assemble.</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>117</td>\n",
+       "      <td>Ladipo Harris</td>\n",
+       "      <td>5</td>\n",
+       "      <td>We used this for our field.day and have allowed a preschool to borrow it and it still held up immaculately!</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>118</td>\n",
+       "      <td>Michelle</td>\n",
+       "      <td>5</td>\n",
+       "      <td>Love this product! It was a huge hit in my classroom and kept my preschool class entertained for ages! It sees sturdy and easy to set up as well</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>...</th>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "      <td>...</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>141</th>\n",
+       "      <td>26</td>\n",
+       "      <td>Marissa</td>\n",
+       "      <td>1</td>\n",
+       "      <td>Nothing would stay together. The bar just kept rolling off</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>142</th>\n",
+       "      <td>27</td>\n",
+       "      <td>Amazon Customer</td>\n",
+       "      <td>1</td>\n",
+       "      <td>flimsy and impossible to use. It was easy to assemble but it isn't a usable product.</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>143</th>\n",
+       "      <td>28</td>\n",
+       "      <td>maria rodriguez</td>\n",
+       "      <td>1</td>\n",
+       "      <td>Very disappointed!  One of the sticks bent the first time we used it. Cheap not good quality</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>144</th>\n",
+       "      <td>29</td>\n",
+       "      <td>Annette Booker Tate</td>\n",
+       "      <td>1</td>\n",
+       "      <td>this product did not come with enough connectors, so therefore this was not useable for me, I could not use it at my party as planned, sad. I need to return this item or receive more connectors.</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>145</th>\n",
+       "      <td>0</td>\n",
+       "      <td>Kristin</td>\n",
+       "      <td>1</td>\n",
+       "      <td>Obviously for the price I shouldn’t have been surprised but it’s a limbo pole, shouldn’t it work for 15 bucks??? The poles arrived broken and missing pieces. We tried to tape them and put them up and they just kept falling over. The horizontal pole won’t even stay put. Don’t waste your money, use a stick instead. We didn’t even use it for the party.</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>146 rows × 4 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "     index    customer_name      rating  \\\n",
+       "0     145                    EJ     5     \n",
+       "1     130       Kindle Customer     5     \n",
+       "2     116                  AliV     5     \n",
+       "3     117         Ladipo Harris     5     \n",
+       "4     118              Michelle     5     \n",
+       "..     ...                  ...     ...   \n",
+       "141    26               Marissa     1     \n",
+       "142    27       Amazon Customer     1     \n",
+       "143    28       maria rodriguez     1     \n",
+       "144    29   Annette Booker Tate     1     \n",
+       "145     0               Kristin     1     \n",
+       "\n",
+       "                                                                                                                                                                                 review                                                                                                                                                                               \n",
+       "0                                                                                                                                                                                                                                                                 I liked the idea but expected it to easy for me to assemble but it wasn't as sturdy as I expected.  \n",
+       "1      LIMBO was a hit with everyone! I actually bought this for my younger children; however, my teenagers (and, their friends) like to Limbo ALL the time! Product arrived, just as described and was super easy to assemble.  It was just as easy to disassemble & comes with a nice drawstring bag to keep all the parts together. I would definitely recommend!  \n",
+       "2                                                                                                                                                                                          The only thing I didn't like about this product is how light it is and doesn't really hold up. other than that, it serves the purpose. It was also very easy to assemble.  \n",
+       "3                                                                                                                                                                                                                                                        We used this for our field.day and have allowed a preschool to borrow it and it still held up immaculately!  \n",
+       "4                                                                                                                                                                                                                   Love this product! It was a huge hit in my classroom and kept my preschool class entertained for ages! It sees sturdy and easy to set up as well  \n",
+       "..                                                                                                                                                                                                                                                                                                                                                               ...  \n",
+       "141                                                                                                                                                                                                                                                                                                       Nothing would stay together. The bar just kept rolling off  \n",
+       "142                                                                                                                                                                                                                                                                             flimsy and impossible to use. It was easy to assemble but it isn't a usable product.  \n",
+       "143                                                                                                                                                                                                                                                                     Very disappointed!  One of the sticks bent the first time we used it. Cheap not good quality  \n",
+       "144                                                                                                                                                               this product did not come with enough connectors, so therefore this was not useable for me, I could not use it at my party as planned, sad. I need to return this item or receive more connectors.  \n",
+       "145  Obviously for the price I shouldn’t have been surprised but it’s a limbo pole, shouldn’t it work for 15 bucks??? The poles arrived broken and missing pieces. We tried to tape them and put them up and they just kept falling over. The horizontal pole won’t even stay put. Don’t waste your money, use a stick instead. We didn’t even use it for the party.  \n",
+       "\n",
+       "[146 rows x 4 columns]"
+      ]
+     },
+     "execution_count": 72,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "b6346f09-9a0d-482c-84ed-2f364f7e830c",
+   "metadata": {},
+   "source": [
+    "## Review Summary Generation"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "52121cbd-c389-40ad-9750-6c1201ff56a7",
+   "metadata": {},
+   "source": [
+    "#### Develop Data Summary"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 73,
+   "id": "559dab39-5512-4ddc-a2a2-7e136d8d6f76",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "22243\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Developing Summary of Reviews for Each Web\n",
+    "amz_cust_reviews = df[\"review\"]\n",
+    "amz_reviews_str = \"\".join(each for  each in amz_cust_reviews)\n",
+    "print(len(amz_reviews_str))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 74,
+   "id": "7868c32b-06f3-4ee3-b167-cf1e34a698f2",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Storing review data into different formats \n",
+    "# converting the dataframe to CSV format for checking purpose\n",
+    "if new_data:\n",
+    "    df.to_csv(\"amz_reviews.csv\", mode=\"w\", index=False)                       # storing in CSV format\n",
+    "    file = open('./review_docs/amz_reviews.txt','w', encoding='utf-8')        # storing in text format\n",
+    "    file.writelines(amz_reviews_str)\n",
+    "    file.close()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 75,
+   "id": "fa997d8b-17b8-4aa0-8a8f-c7f33c580ae3",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Activating the API Keys & set LLM \n",
+    "OPENAI_API_KEY = os.environ.get(\"OPENAI_API_KEY\")\n",
+    "llm = ChatOpenAI(temperature=0, model='gpt-3.5-turbo')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "51bd6074-f040-4185-9626-fd8edc5fe5ee",
+   "metadata": {},
+   "source": [
+    "#### Check for Review Content Length"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 76,
+   "id": "b5e29a14-3bd8-47f1-a7bd-eec654ff23c7",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Total actual number of input tokens = 5017\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Counting AutoScraper output tokens\n",
+    "\n",
+    "def count_tokens(string: str, encoding_name: str) -> int:\n",
+    "    \"\"\"Returns the number of tokens in a text string.\"\"\"\n",
+    "\n",
+    "    encoding = tiktoken.get_encoding(encoding_name)\n",
+    "    num_tokens = len(encoding.encode(string))\n",
+    "    return num_tokens\n",
+    "\n",
+    "total_tokens = count_tokens(str(amz_reviews_str), \"cl100k_base\")\n",
+    "print(\"Total actual number of input tokens =\", total_tokens)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 77,
+   "id": "1777854d-67bc-46a2-bf19-64aa96da60dd",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "if total_tokens <= 3500: \n",
+    "    summary_statement = \"\"\"You are an expeienced copy writer providing a world-class summary of product reviews {reviews} from numerous customers \\\n",
+    "                        on a given product from different leading e-commerce platforms. You write summary of all reviews for a target audience \\\n",
+    "                        of wide array of product reviewers ranging from a common man to an expeirenced product review professional.\"\"\"\n",
+    "    summary_prompt = PromptTemplate(input_variables = [\"reviews\"], template=summary_statement)\n",
+    "    llm_chain = LLMChain(llm=llm, prompt=summary_prompt)\n",
+    "    amz_review_summary_smp = llm_chain.run(amz_reviews_str)\n",
+    "    print(amz_review_summary_smp)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c80c44c1-51b3-472e-a198-721509624b9d",
+   "metadata": {},
+   "source": [
+    "##### Define Function for Sentiment Analysis"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "d3579e5a-f982-4b94-a754-fbd0feb3365f",
+   "metadata": {},
+   "source": [
+    "# define a function for sentiment analysis\n",
+    "# https://python.langchain.com/docs/use_cases/tagging/\n",
+    "\n",
+    "class Classification(BaseModel):\n",
+    "    Overall_Sentiment: str = Field(..., enum=[\"Positive\", \"Neutral\", \"Negative\"])\n",
+    "    Review_Aggressiveness: int = Field(\n",
+    "        ...,\n",
+    "        description=\"describes how aggressive the statement is, the higher the number the more aggressive\",\n",
+    "        enum=[1, 2, 3, 4, 5],\n",
+    "    )\n",
+    "    \n",
+    "tagging_prompt = ChatPromptTemplate.from_template(\n",
+    "    \"\"\"\n",
+    "    Extract the  properties mentioned in the 'Classification' function from the following text.\n",
+    "    Paragraph:\n",
+    "    {input}\n",
+    "    \"\"\"\n",
+    ")\n",
+    "\n",
+    "llm = ChatOpenAI(temperature=0, model=\"gpt-3.5-turbo-0125\").with_structured_output(\n",
+    "    Classification\n",
+    ")\n",
+    "\n",
+    "tagging_chain = tagging_prompt | llm"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "aac971e4-5dd1-4c04-a836-cf0165837fbf",
+   "metadata": {},
+   "source": [
+    "### Generating Customer Review Sentiment for smaller inputs"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 78,
+   "id": "e83b8c44-9b9b-4b64-90d3-a1259c55f2d3",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "if total_tokens <= 3500:\n",
+    "    output_smp = tagging_chain.invoke({\"input\": amz_review_summary_smp})\n",
+    "    print(\"Customer Reviews' Sentiment \\n\\n\", output_smp)\n",
+    "    print(\"\\n *** PROGRAM EXECUTION ABORTED HERE ***\")\n",
+    "    raise StopExecution"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 89,
+   "id": "454175f6-f093-4980-8326-292013156649",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Splitting the doc into sizeable chunks\n",
+    "\n",
+    "# raw_documents = TextLoader(\"./review_docs/amz_reviews.txt\", encoding='utf-8').load()\n",
+    "text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=0, separators=[\"\\n\\n\", \"\\n\", \" \", \"\"])\n",
+    "split_text = text_splitter.split_text(str(amz_reviews_str))\n",
+    "docs = [Document(page_content=each) for each in split_text]\n",
+    "print(\"Total number of documents =\", docs)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "89a8ac58-1ce7-40f1-8bcb-a5e082fe41e0",
+   "metadata": {},
+   "source": [
+    "### Apply Map Reduce Method \n",
+    "#### (Summarize large Document)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 90,
+   "id": "55872808-7a31-47e6-bd30-794c9cc17a7d",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Applying map reduce to summarize large document\n",
+    "# https://python.langchain.com/docs/use_cases/summarization/\n",
+    "map_template = \"\"\"Based on the following docs {docs}, please provide summary of reviews presented in these documents. \n",
+    "Review Summary is:\"\"\"\n",
+    "\n",
+    "map_prompt = PromptTemplate.from_template(map_template)\n",
+    "map_chain = LLMChain(llm=llm, prompt=map_prompt)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "5cbc1d81-bd60-4d1b-8e4e-fb88dc50b1b8",
+   "metadata": {},
+   "source": [
+    "The ReduceDocumentsChain handles taking the document mapping results and reducing them into a single output. It wraps a generic CombineDocumentsChain (like StuffDocumentsChain) but adds the ability to collapse documents before passing it to the CombineDocumentsChain if their cumulative size exceeds token_max. In this example, we can actually re-use our chain for combining our docs to also collapse our docs.\r\n",
+    "\r\n",
+    "So if the cumulative number of tokens in our mapped documents exceeds 4000 tokens, then we’ll recursively pass in the documents in batches of \\< 4000 tokens to our StuffDocumentsChain to create batched summaries. And once those batched summaries are cumulatively less than 4000 tokens, we’ll pass them all one last time to the StuffDocumentsChain to create the final summary."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 91,
+   "id": "9e782702-f2a4-46a2-8998-652bf540f739",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Reduce\n",
+    "reduce_template = \"\"\"The following is set of summaries: \n",
+    "{doc_summaries}\n",
+    "Take these document and return your consolidated summary in a professional manner addressing the key points of the customer reviews. \n",
+    "Review Summary is:\"\"\"\n",
+    "reduce_prompt = PromptTemplate.from_template(reduce_template)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 92,
+   "id": "6cadf1ec-71e9-4f75-8f07-64441d6e661c",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Run chain\n",
+    "reduce_chain = LLMChain(llm=llm, prompt=reduce_prompt)\n",
+    "\n",
+    "# Takes a list of documents, combines them into a single string, and passes this to an LLMChain\n",
+    "combine_documents_chain = StuffDocumentsChain(llm_chain=reduce_chain, document_variable_name=\"doc_summaries\")\n",
+    "\n",
+    "# Combines and iteratively reduces the mapped documents\n",
+    "reduce_documents_chain = ReduceDocumentsChain(\n",
+    "    # This is final chain that is called.\n",
+    "    combine_documents_chain=combine_documents_chain,\n",
+    "    # If documents exceed context for `StuffDocumentsChain`\n",
+    "    collapse_documents_chain=combine_documents_chain,\n",
+    "    # The maximum number of tokens to group documents into.\n",
+    "    token_max=3500,\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "79a42cc9-6ad9-4017-804f-2646988a9433",
+   "metadata": {},
+   "source": [
+    "Combining our map and reduce chains into one"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 93,
+   "id": "c547969a-0f9d-437a-9d5e-90f02c773894",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Combining documents by mapping a chain over them, then combining results\n",
+    "map_reduce_chain = MapReduceDocumentsChain(\n",
+    "    # Map chain\n",
+    "    llm_chain=map_chain,\n",
+    "    # Reduce chain\n",
+    "    reduce_documents_chain=reduce_documents_chain,\n",
+    "    # The variable name in the llm_chain to put the documents in\n",
+    "    document_variable_name=\"docs\",\n",
+    "    # Return the results of the map steps in the output\n",
+    "    return_intermediate_steps=False,\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "0c262e81-564f-4eec-bd08-a7558f9c3d5f",
+   "metadata": {},
+   "source": [
+    "#### Generating Map Reduce Summary"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 94,
+   "id": "30fde9cd-9158-4818-b793-1955fc4d3d9d",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "amz_review_summary_mr = map_reduce_chain.invoke(docs)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 95,
+   "id": "46ea2860-b772-4860-beb0-2129f3120636",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "page_content=\"I liked the idea but expected it to easy for me to assemble but it wasn't as sturdy as I expected.LIMBO was a hit with everyone! I actually bought this for my younger children; however, my teenagers (and, their friends) like to Limbo ALL the time! Product arrived, just as described and was super easy to assemble.  It was just as easy to disassemble & comes with a nice drawstring bag to keep all the parts together. I would definitely recommend!The only thing I didn't like about this product is how light it is and doesn't really hold up. other than that, it serves the purpose. It was also very easy to assemble.We used this for our field.day and have allowed a preschool to borrow it and it still held up immaculately!Love this product! It was a huge hit in my classroom and kept my preschool class entertained for ages! It sees sturdy and easy to set up as wellIt's a great game and my kids love it!! I bought this with the idea of giving it as a gift to one of my sons, but upon opening it I decided to give it a try and see how I could do....well lets just say that I'm not 16 anymore. LOLIt's a very sturdy unit and looks like it will last for a very long time.It comes with it's own carry\"\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(amz_review_summary_mr['input_documents'][0])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c11e3947-3a20-45c2-8b27-c9deead34d9e",
+   "metadata": {},
+   "source": [
+    "### Apply Refine Method \n",
+    "#### (Summarize large Document)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 96,
+   "id": "9476cd14-e2ff-4757-a2e8-4b04bc702f4b",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Checking the Refine Method for comparison\n",
+    "# https://medium.com/@abonia/summarization-with-langchain-b3d83c030889\n",
+    "\n",
+    "prompt_template = \"\"\"\n",
+    "                  Please provide a summary of the following text.\n",
+    "                  TEXT: {text}\n",
+    "                  SUMMARY:\n",
+    "                  \"\"\"\n",
+    "\n",
+    "question_prompt = PromptTemplate(\n",
+    "    template=prompt_template, input_variables=[\"text\"]\n",
+    ")\n",
+    "\n",
+    "refine_prompt_template = \"\"\"\n",
+    "              Write a concise summary of the following text delimited by triple backquotes.\n",
+    "              Return your response in that covers the key points of the text.\n",
+    "              ```{text}```\n",
+    "              BULLET POINT SUMMARY:\n",
+    "              \"\"\"\n",
+    "\n",
+    "refine_prompt = PromptTemplate(\n",
+    "    template=refine_prompt_template, input_variables=[\"text\"])\n",
+    "\n",
+    "# Load refine chain\n",
+    "chain = load_summarize_chain(\n",
+    "    llm=llm,\n",
+    "    chain_type=\"refine\",\n",
+    "    question_prompt=question_prompt,\n",
+    "    refine_prompt=refine_prompt,\n",
+    "    return_intermediate_steps=True,\n",
+    "    input_key=\"input_text\",\n",
+    "   output_key=\"output_text\",\n",
+    ")\n",
+    "amz_review_summary_ref = chain.invoke({\"input_text\": docs}, return_only_outputs=True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "9d7accf7-5fcf-42e5-b8a8-ae76a9b09b20",
+   "metadata": {},
+   "source": [
+    "#### Generating Refine Method Summary"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 97,
+   "id": "43c64e6a-99ff-4143-aacb-81fa132fca52",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The text discusses a product called LIMBO that was purchased for younger children but ended up being enjoyed by teenagers and their friends. The product was easy to assemble and disassemble, and came with a drawstring bag to keep all the parts together. While some users found the product to be light and not very sturdy, others found it to be durable and long-lasting. Overall, the product was a hit in classrooms and for field day activities.\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(amz_review_summary_ref['intermediate_steps'][0])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "d68ac1da-a60a-4939-a45e-065b931f48fb",
+   "metadata": {},
+   "source": [
+    "### Customer Sentiment from Review Summaries"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 98,
+   "id": "14039a1a-e540-4d72-b533-e89316ea9325",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Generating customer reviews sentiment based on map reduce method summary\n",
+    "output_mr = tagging_chain.invoke({\"input\": amz_review_summary_mr['input_documents'][0]})"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 99,
+   "id": "f7a034dc-c4cc-48ea-abe7-df3c4da43b90",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Sentiment Output for Map Reduce Summary : Overall_Sentiment='Positive' Review_Aggressiveness=3\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(\"Sentiment Output for Map Reduce Summary :\", output_mr)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 100,
+   "id": "438f211e-b14c-4178-936f-9200caf54088",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Generating customer reviews sentiment based on refine method summary\n",
+    "output_ref = tagging_chain.invoke({\"input\": amz_review_summary_ref})"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 101,
+   "id": "e5e8b92e-1d16-45a5-8ff9-5b5cefb7cc5f",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Sentiment Output for Refined Method Summary : Overall_Sentiment='Negative' Review_Aggressiveness=3\n"
+     ]
+    }
+   ],
+   "source": [
+    "print(\"Sentiment Output for Refined Method Summary :\", output_ref)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "ba166d9c-c9e6-485a-9a71-7cb32d230cbc",
+   "metadata": {},
+   "source": [
+    "### Generating Comparative Output Summary"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 102,
+   "id": "aea1e839-ae3f-4ea7-8b1e-bef465746a88",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "data_output = pd.DataFrame({\"Review Summary\":[amz_review_summary_mr[\"input_documents\"][0], amz_review_summary_ref[\"intermediate_steps\"][0]], \n",
+    "                            \"Sentiments\":[output_mr, output_ref]},\n",
+    "                           index=([\"Map Reduce Method\", \"Refine Method\"]))\n",
+    "\n",
+    "pd.set_option(\"display.colheader_justify\",\"center\")\n",
+    "pd.set_option('display.max_colwidth', None)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "2a24fa62-6cef-4f5f-aaa6-24fcae4b033b",
+   "metadata": {},
+   "source": [
+    "### Exporting Summary"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 103,
+   "id": "3477ec35-4026-4ac4-804d-5fa80506d73a",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "data_output.to_pickle(\"data_output\")\n",
+    "data_output.to_csv(\"data output.csv\", mode=\"w\", index=False)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "f1f71b36-41d9-4ff0-8dff-97861f0c11cb",
+   "metadata": {},
+   "source": [
+    "### Displaying Summary"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 104,
+   "id": "638d7bda-01c2-4f1d-ab5b-0a342ee943aa",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<style type=\"text/css\">\n",
+       "#T_648fd th {\n",
+       "  text-align: center;\n",
+       "}\n",
+       "#T_648fd_row0_col0, #T_648fd_row0_col1, #T_648fd_row1_col0, #T_648fd_row1_col1 {\n",
+       "  text-align: left;\n",
+       "}\n",
+       "</style>\n",
+       "<table id=\"T_648fd\">\n",
+       "  <thead>\n",
+       "    <tr>\n",
+       "      <th class=\"blank level0\" >&nbsp;</th>\n",
+       "      <th id=\"T_648fd_level0_col0\" class=\"col_heading level0 col0\" >Review Summary</th>\n",
+       "      <th id=\"T_648fd_level0_col1\" class=\"col_heading level0 col1\" >Sentiments</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th id=\"T_648fd_level0_row0\" class=\"row_heading level0 row0\" >Map Reduce Method</th>\n",
+       "      <td id=\"T_648fd_row0_col0\" class=\"data row0 col0\" >page_content=\"I liked the idea but expected it to easy for me to assemble but it wasn't as sturdy as I expected.LIMBO was a hit with everyone! I actually bought this for my younger children; however, my teenagers (and, their friends) like to Limbo ALL the time! Product arrived, just as described and was super easy to assemble.  It was just as easy to disassemble & comes with a nice drawstring bag to keep all the parts together. I would definitely recommend!The only thing I didn't like about this product is how light it is and doesn't really hold up. other than that, it serves the purpose. It was also very easy to assemble.We used this for our field.day and have allowed a preschool to borrow it and it still held up immaculately!Love this product! It was a huge hit in my classroom and kept my preschool class entertained for ages! It sees sturdy and easy to set up as wellIt's a great game and my kids love it!! I bought this with the idea of giving it as a gift to one of my sons, but upon opening it I decided to give it a try and see how I could do....well lets just say that I'm not 16 anymore. LOLIt's a very sturdy unit and looks like it will last for a very long time.It comes with it's own carry\"</td>\n",
+       "      <td id=\"T_648fd_row0_col1\" class=\"data row0 col1\" >Overall_Sentiment='Positive' Review_Aggressiveness=3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th id=\"T_648fd_level0_row1\" class=\"row_heading level0 row1\" >Refine Method</th>\n",
+       "      <td id=\"T_648fd_row1_col0\" class=\"data row1 col0\" >The text discusses a product called LIMBO that was purchased for younger children but ended up being enjoyed by teenagers and their friends. The product was easy to assemble and disassemble, and came with a drawstring bag to keep all the parts together. While some users found the product to be light and not very sturdy, others found it to be durable and long-lasting. Overall, the product was a hit in classrooms and for field day activities.</td>\n",
+       "      <td id=\"T_648fd_row1_col1\" class=\"data row1 col1\" >Overall_Sentiment='Negative' Review_Aggressiveness=3</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n"
+      ],
+      "text/plain": [
+       "<pandas.io.formats.style.Styler at 0x2dc35c77610>"
+      ]
+     },
+     "execution_count": 104,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "data_output = data_output.style.set_properties(**{'text-align': 'left'})\n",
+    "data_output.set_table_styles([dict(selector='th', props=[('text-align', 'center')])])\n",
+    "data_output"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.10.14"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

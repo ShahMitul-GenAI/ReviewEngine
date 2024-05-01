@@ -1,0 +1,11 @@
+Output Format
+=============
+
+amazon_inputs = 	{"customer_name 1": {"rating 1": 1,
+                                         "review 1" : " "},
+                    {"customer_name 2": {"rating 2": 2,
+                                         "review 2": " "},
+		........... ............. ............... ............. 
+        		   {"customer_name n": {"rating n": 5,
+                                         "review n": " "},}
+
