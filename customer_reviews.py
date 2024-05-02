@@ -3,7 +3,7 @@
 
 # ## Instaling the required packages
 
-# In[63]:
+# In[1]:
 
 
 import os
@@ -19,7 +19,7 @@ from dotenv import load_dotenv, dotenv_values
 from langchain.docstore.document import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI, OpenAI
 from langchain_text_splitters import CharacterTextSplitter
 from langchain.chains import LLMChain, StuffDocumentsChain
 from langchain_community.document_loaders import TextLoader
@@ -28,24 +28,82 @@ from langchain_community.callbacks import get_openai_callback
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import MapReduceDocumentsChain, ReduceDocumentsChain
 
+# packages for print output notifications
+import pickle
+from io import StringIO
+import sys
+
+tmp = sys.stdout
+my_result = StringIO()
+sys.stdout = my_result
 load_dotenv()
 
 
-# #### Decide about loading new data
+# In[20]:
 
-# In[111]:
+
+# Removing previous execution notification files
+
+for i in range(0, 6):
+    PATH = "C:/Users/Mast_Nijanand/customer_review_app/notifications/"
+    file_path = str(PATH) + "note" + str(i) + ".txt"
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        
+file_path = str(PATH) + "PROG EXIT.txt"
+if os.path.exists(file_path):
+    os.remove(file_path)
+
+file_path = str(PATH) + "LARGE.txt"
+if os.path.exists(file_path):
+    os.remove(file_path)
+
+
+# #### Loading user data
+
+# In[2]:
 
 
 # importing inputs from the UI 
-from user_inputs import new_data_st, max_cus, product
+with open("./notifications/data_inputs.pkl", 'rb') as fp:
+    data = pickle.load(fp)
+
+
+# In[ ]:
+
+
+# Extracting user inputs
+new_data = data[0]["new_data_st"]
+product = data[0]["product"]
+max_cust = data[0]["max_cust"]
+if (new_data != "" and product != "" and max_cust != ""):
+    print("User inputs are received successfully. Now starting extraction of customer reviews.", file=my_result)
+else:
+    print("User inputs are not trasferred properly.", file=my_result)
+
+
+# In[ ]:
+
+
+# Preliminiary input data check notification
+
+with open("./notifications/note0.txt", 'w') as f:
+        print(my_result.getvalue(), file=f)
+pickle.dumps("note0.txt")
+    
+# resetting the StringIO for next printouts
+sys.stdout = tmp
+tmp = sys.stdout
+my_result = StringIO()
+sys.stdout = my_result
 
 
 # #### Setting up small vs. large content code toggle
 
-# In[109]:
+# In[3]:
 
 
-if new_data_st == "Yes":
+if new_data == "Yes":
     new_data = True
 else:
     new_data = False
@@ -74,7 +132,7 @@ Rapid_AI_Host = os.environ.get("Rapid_AI_Host")
 
 # #### Invoking Amazon Scrapper
 
-# In[23]:
+# In[6]:
 
 
 class AmazonScraper:
@@ -111,15 +169,12 @@ class AmazonScraper:
 
     def __get_closest_product_asin(self, html_page: str):
         soup = BeautifulSoup(html_page, 'lxml')
-        print(soup)
 
         # data-asin grabs products, while data-avar filters out sponsored ads
         listings = soup.findAll('div', attrs={'data-asin': True, 'data-avar': False})
-        print(listings)
 
         asin_values = [single_listing['data-asin'] for single_listing in listings if len(single_listing['data-asin']) != 0]
 
-        print(asin_values)
         assert len(asin_values) > 0
 
         return asin_values[0]
@@ -204,23 +259,22 @@ class AmazonScraper:
 
 # ### Getting Amazon Reivews
 
-# In[43]:
+# In[7]:
 
 
 if new_data:
     search_query = str(product)   # 'premier protein shake, chocolate'
     scraper = AmazonScraper()
-    reviews = scraper.get_closest_product_reviews(search_query, num_reviews = max_cus, debug=True)
-    print(reviews)
+    reviews = scraper.get_closest_product_reviews(search_query, num_reviews = max_cust, debug=False)
 
 
-# In[80]:
+# In[ ]:
 
 
-print("Total number of reviewes received: ", len(reviews))
+print(f"Total {len(reviews)} customer reviews received.", file=my_result)
 
 
-# In[45]:
+# In[ ]:
 
 
 # Transfering the webscrapped data into a dataframe
@@ -228,13 +282,13 @@ if new_data:
     df = pd.DataFrame.from_dict(reviews)
     df.sort_values(by=["rating"], ascending=False, inplace=True)
     df.reset_index(inplace=True)
-    df.to_pickle("amazon_reviews_df")  # storing df to ease its future usage
+    df.to_pickle("amazon_reviews_df.pkl")  # storing df to ease its future usage
     df.head(5)
 else:
-    df = pd.read_pickle("amazon_reviews_df")
+    df = pd.read_pickle("amazon_reviews_df.pkl")
 
 
-# In[46]:
+# In[ ]:
 
 
 df
@@ -265,38 +319,38 @@ df
 
 # #### Develop Data Summary
 
-# In[47]:
+# In[ ]:
 
 
 # Developing Summary of Reviews for Each Web
 amz_cust_reviews = df["review"]
 amz_reviews_str = "".join(each for  each in amz_cust_reviews)
-print(f"Total length of all reviews text chain is {len(amz_reviews_str)} characters.")
+print(f"Total length of entire customer reviews text receieved is {len(amz_reviews_str)} characters.", file=my_result)
 
 
-# In[48]:
+# In[ ]:
 
 
 # Storing review data into different formats 
 # converting the dataframe to CSV format for checking purpose
 if new_data:
     df.to_csv("amz_reviews.csv", mode="w", index=False)                       # storing in CSV format
-    file = open('./review_docs/amz_reviews.txt','w', encoding='utf-8')        # storing in text format
-    file.writelines(amz_reviews_str)
-    file.close()
+    with open('./review_docs/amz_reviews.txt','w', encoding='utf-8') as f:        # storing in text format
+        f.write(str(amz_reviews_str))
+    f.close()
 
 
-# In[64]:
+# In[ ]:
 
 
 # Setting LLM 
 llm = ChatOpenAI(temperature=0, model='gpt-3.5-turbo')
-print("LLM gets loaded successfully")
+print("LLM gets loaded successfully.", file=my_result)
 
 
 # #### Check for Review Content Length
 
-# In[50]:
+# In[ ]:
 
 
 # Counting AutoScraper output tokens
@@ -309,68 +363,105 @@ def count_tokens(string: str, encoding_name: str) -> int:
     return num_tokens
 
 total_tokens = count_tokens(str(amz_reviews_str), "cl100k_base")
-print("Total actual number of input tokens =", total_tokens)
+print(f"Total length of customer reviews text = {total_tokens} tokens", file=my_result)
 
 
-# In[51]:
+# In[ ]:
+
+
+# notification export 1
+
+with open("./notifications/note1.txt", 'w') as f:
+        print(my_result.getvalue(), file=f)
+pickle.dumps("note1.txt")
+
+# resetting the StringIO for next printouts
+sys.stdout = tmp
+tmp = sys.stdout
+my_result = StringIO()
+sys.stdout = my_result
+
+
+# In[ ]:
 
 
 if total_tokens <= 3500: 
-    print("Reveiew summary will be generated using the small content context method.")
+    print("Reveiew summary will be generated considering the smaller review content.\n", file=my_result)
     
     summary_statement = """You are an expeienced copy writer providing a world-class summary of product reviews {reviews} from numerous customers \
                         on a given product from different leading e-commerce platforms. You write summary of all reviews for a target audience \
                         of wide array of product reviewers ranging from a common man to an expeirenced product review professional."""
     summary_prompt = PromptTemplate(input_variables = ["reviews"], template=summary_statement)
     llm_chain = LLMChain(llm=llm, prompt=summary_prompt)
-    amz_review_summary_smp = llm_chain.run(amz_reviews_str)
-    print("Amazon Review Summary: \n\n", amz_review_summary_smp)
+    amz_review_summary_smp = llm_chain.invoke(amz_reviews_str)
+    print(f"Amazon Review Summary for smaller text input is: {amz_review_summary_smp}\n\n", file=my_result)
 
 
 # ##### Define Function for Sentiment Analysis
 
-# In[52]:
-
-
-# define a function for sentiment analysis
-# https://python.langchain.com/docs/use_cases/tagging/
-
-class Classification(BaseModel):
-    Overall_Sentiment: str = Field(..., enum=["Positive", "Neutral", "Negative"])
-    Review_Aggressiveness: int = Field(
-        ...,
-        description="describes how aggressive the statement is, the higher the number the more aggressive",
-        enum=[1, 2, 3, 4, 5],
-    )
-    
-tagging_prompt = ChatPromptTemplate.from_template(
-    """
-    Extract the  properties mentioned in the 'Classification' function from the following text.
-    Paragraph:
-    {input}
-    """
-)
-
-llm = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0125").with_structured_output(
-    Classification
-)
-
-tagging_chain = tagging_prompt | llm
-
+# # define a function for sentiment analysis
+# # https://python.langchain.com/docs/use_cases/tagging/
+# 
+# class Classification(BaseModel):
+#     Overall_Sentiment: str = Field(..., enum=["Positive", "Neutral", "Negative"])
+#     Review_Aggressiveness: int = Field(
+#         ...,
+#         description="describes how aggressive the statement is, the higher the number the more aggressive",
+#         enum=[1, 2, 3, 4, 5],
+#     )
+#     
+# tagging_prompt = ChatPromptTemplate.from_template(
+#     """
+#     Extract the  properties mentioned in the 'Classification' function from the following text.
+#     
+#     Only extract the properties mentioned in the 'Classification' function.
+# 
+#     Paragraph:
+#     {input}
+#     """
+# )
+# 
+# llm = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0125").with_structured_output(
+#     Classification
+# )
+# 
+# tagging_chain = tagging_prompt | llm
+# print("Consumer Review Sentiment and Agressiveness measurement Class is initiated.", file=my_result)
 
 # ### Generating Customer Review Sentiment for smaller inputs
 
-# In[53]:
+# if total_tokens <= 3500:
+#     output_smp = tagging_chain.invoke({"input": amz_review_summary_smp})
+#     print(f"Customer Review Sentiment per smaller review content is {output_smp} n\n", file=my_result)
 
+# In[21]:
+
+
+# notification export 2
 
 if total_tokens <= 3500:
-    output_smp = tagging_chain.invoke({"input": amz_review_summary_smp})
-    print("Customer Reviews' Sentiment \n\n", output_smp)
-    print("\n *** PROGRAM EXECUTION ABORTED HERE ***")
+    with open("./notifications/note2.txt", 'w') as f:
+        print(my_result.getvalue(), file=f)
+    pickle.dumps("note2.txt")
+    
+    # resetting the StringIO for next printouts
+    sys.stdout = tmp
+    tmp = sys.stdout
+    my_result = StringIO()
+    sys.stdout = my_result
+    print("\n *** PROGRAM EXECUTION ABORTED NOW ***")
+
+    # dumping termination flag file
+    time.sleep(7)
+    f1 = open('./notifications/SMALL.txt','wb')
+    pickle.dump(123, f1)
+
+    f2 = open('./notifications/PROG EXIT.txt','wb')
+    pickle.dump(123, f2)
     raise StopExecution
 
 
-# In[87]:
+# In[ ]:
 
 
 # Splitting the doc into sizeable chunks
@@ -378,25 +469,24 @@ if total_tokens <= 3500:
 raw_documents = TextLoader("./review_docs/amz_reviews.txt", encoding='utf-8').load()
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=0, separators=["\n\n", "\n", " ", ""])
 split_text = text_splitter.split_documents(raw_documents)
-# docs = [Document(page_content=each) for each in split_text]
-print("Total number of documents =", len(docs))
+#docs = [Document(page_content=each) for each in split_text]
 
 
-# In[90]:
+# In[ ]:
 
 
-print(docs[:2])
+print(f"\n\nTotal {len(split_text)} number of document chunks created after fragmentint larger customer review content.", file=my_result)
 
 
 # ### Apply Map Reduce Method 
 # #### (Summarize large Document)
 
-# In[91]:
+# In[ ]:
 
 
 # Applying map reduce to summarize large document
 # https://python.langchain.com/docs/use_cases/summarization/
-print("Map Reduce Process is initiated now") 
+print(f"Map Reduce Process is initiated now.", file=my_result) 
 
 map_template = """Based on the following docs {docs}, please provide summary of reviews presented in these documents. 
 Review Summary is:"""
@@ -409,7 +499,7 @@ map_chain = LLMChain(llm=llm, prompt=map_prompt)
 # 
 # So if the cumulative number of tokens in our mapped documents exceeds 4000 tokens, then we’ll recursively pass in the documents in batches of \< 4000 tokens to our StuffDocumentsChain to create batched summaries. And once those batched summaries are cumulatively less than 4000 tokens, we’ll pass them all one last time to the StuffDocumentsChain to create the final summary.
 
-# In[92]:
+# In[ ]:
 
 
 # Reduce
@@ -420,7 +510,7 @@ Review Summary is:"""
 reduce_prompt = PromptTemplate.from_template(reduce_template)
 
 
-# In[93]:
+# In[ ]:
 
 
 # Run chain
@@ -442,7 +532,7 @@ reduce_documents_chain = ReduceDocumentsChain(
 
 # Combining our map and reduce chains into one
 
-# In[94]:
+# In[ ]:
 
 
 # Combining documents by mapping a chain over them, then combining results
@@ -460,27 +550,46 @@ map_reduce_chain = MapReduceDocumentsChain(
 
 # #### Generating Map Reduce Summary
 
-# In[95]:
+# In[ ]:
 
 
-amz_review_summary_mr = map_reduce_chain.invoke(docs)
+amz_review_summary_mr = map_reduce_chain.invoke(split_text)
 
 
-# In[97]:
+# In[ ]:
 
 
-print("Amazon Review Summary as per Map Reduced Method: \n\n", amz_review_summary_mr['input_documents'][0])
+print(f"\n\nAmazon Review Summary as per Map Reduced Method is \n {amz_review_summary_mr['input_documents'][0]}\n\n", file=my_result )
+
+
+# In[ ]:
+
+
+# notification export 3
+
+f3 = open('./notifications/LARGE.txt','wb')
+pickle.dump(123, f3)
+
+with open("./notifications/note3.txt", 'w') as f:
+        print(my_result.getvalue(), file=f)
+pickle.dumps("note3.txt")
+    
+# resetting the StringIO for next printouts
+sys.stdout = tmp
+tmp = sys.stdout
+my_result = StringIO()
+sys.stdout = my_result
 
 
 # ### Apply Refine Method 
 # #### (Summarize large Document)
 
-# In[98]:
+# In[ ]:
 
 
 # Checking the Refine Method for comparison
 # https://medium.com/@abonia/summarization-with-langchain-b3d83c030889
-print("Document Refine Method is initiated now")
+print(f"Document Refine Method is initiated now.", file=my_result)
 
 prompt_template = """
                   Please provide a summary of the following text.
@@ -512,77 +621,88 @@ chain = load_summarize_chain(
     input_key="input_text",
    output_key="output_text",
 )
-amz_review_summary_ref = chain.invoke({"input_text": docs}, return_only_outputs=True)
+amz_review_summary_ref = chain.invoke({"input_text": split_text}, return_only_outputs=True)
 
 
 # #### Generating Refine Method Summary
 
-# In[99]:
+# In[ ]:
 
 
-print("Amazon Review Summary as per Refine Method: \n\n", amz_review_summary_ref['intermediate_steps'][0])
+print(f"Amazon Review Summary as per Refine Method is \n {amz_review_summary_ref['intermediate_steps'][0]} \n\n", file=my_result)
+
+
+# In[ ]:
+
+
+# notification export 4
+
+with open("./notifications/note4.txt", 'w') as f:
+        print(my_result.getvalue(), file=f)
+pickle.dumps("note4.txt")
+    
+# resetting the StringIO for next printouts
+sys.stdout = tmp
+tmp = sys.stdout
+my_result = StringIO()
+sys.stdout = my_result
 
 
 # ### Customer Sentiment from Review Summaries
 
-# In[100]:
+# # Generating customer reviews sentiment based on map reduce method summary
+# output_mr = tagging_chain.invoke({"input": amz_review_summary_mr['input_documents'][0]})
+
+# print(f"Sentiment Output for Map Reduce Summary is: \n {output_mr}\n", file=my_result)
+
+# # Generating customer reviews sentiment based on refine method summary
+# output_ref = tagging_chain.invoke({"input": amz_review_summary_ref})
+
+# print(f"Sentiment Output for Refined Method Summary is; \n {output_ref}", file=my_result)
+
+# In[ ]:
 
 
-# Generating customer reviews sentiment based on map reduce method summary
-output_mr = tagging_chain.invoke({"input": amz_review_summary_mr['input_documents'][0]})
+# notification export 5
+print("PROGRAM ENDS SUCCESSFULLY", file=my_result)
 
+with open("./notifications/note5.txt", 'w') as f:
+        print(my_result.getvalue(), file=f)
+pickle.dumps("note5.txt")
 
-# In[101]:
+# dumping termination flag file
+time.sleep(5)
 
-
-print("Sentiment Output for Map Reduce Summary :", output_mr)
-
-
-# In[102]:
-
-
-# Generating customer reviews sentiment based on refine method summary
-output_ref = tagging_chain.invoke({"input": amz_review_summary_ref})
-
-
-# In[103]:
-
-
-print("Sentiment Output for Refined Method Summary :", output_ref)
+f5 = open('./notifications/PROG EXIT.txt','wb')
+pickle.dump(123, f5)
+    
+# resetting the StringIO for next printouts
+sys.stdout = tmp
+tmp = sys.stdout
+my_result = StringIO()
+sys.stdout = my_result
 
 
 # ### Generating Comparative Output Summary
 
-# In[104]:
-
-
-print("Generating Review Summary and Sentiment Output Dataframe now")
-
-data_output = pd.DataFrame({"Review Summary":[amz_review_summary_mr["input_documents"][0], amz_review_summary_ref["intermediate_steps"][0]], 
-                            "Sentiments":[output_mr, output_ref]},
-                           index=(["Map Reduce Method", "Refine Method"]))
-
-pd.set_option("display.colheader_justify","center")
-pd.set_option('display.max_colwidth', None)
-
+# print("Generating Review Summary and Sentiment Output Dataframe now")
+# 
+# data_output = pd.DataFrame({"Review Summary":[amz_review_summary_mr["input_documents"][0], amz_review_summary_ref["intermediate_steps"][0]], 
+#                             "Sentiments":[output_mr, output_ref]},
+#                            index=(["Map Reduce Method", "Refine Method"]))
+# 
+# pd.set_option("display.colheader_justify","center")
+# pd.set_option('display.max_colwidth', None)
 
 # ### Exporting Summary
 
-# In[105]:
-
-
-data_output.to_pickle("data_output")
-data_output.to_csv("data output.csv", mode="w", index=False)
-
+# data_output.to_pickle("data_output.pkl")
+# data_output.to_csv("data_output.csv", mode="w", index=False)
 
 # ### Displaying Summary
 
-# In[106]:
-
-
-data_output = data_output.style.set_properties(**{'text-align': 'left'})
-data_output.set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-
-print("Final Data Output generation has been complete now")
-data_output
-
+# data_output = data_output.style.set_properties(**{'text-align': 'left'})
+# data_output.set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
+# 
+# print("Final Data Output generation has been complete now")
+# data_output
