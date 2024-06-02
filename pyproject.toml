@@ -13,7 +13,8 @@ python-dotenv = "^1.0.1"
 langchain = "^0.2.1"
 langchain-openai = "^0.1.8"
 selenium = "^4.21.0"
-BeautifulSoup = "^3.2.2"
+beautifulsoup4 = "^4.9.3"
+lxml = "^5.2.2"
 
 
 [build-system]

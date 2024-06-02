@@ -5,7 +5,7 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain.chains import LLMChain
 from langchain_openai import ChatOpenAI
-from src.cust_reviews.amazon_scraper import AmazonScraper
+from customer_reviews.amazon_scraper import AmazonScraper
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -163,15 +163,3 @@ def get_review_summary(prod_query: str, cust_count: int) -> tuple[int, Any, str,
         cust_review_summary = "N.A."
 
     return total_tokens, df, cust_review_summary, cust_review_summary_map, cust_review_summary_refine
-
-
-
-
-
-
-
-
-
-
-
-

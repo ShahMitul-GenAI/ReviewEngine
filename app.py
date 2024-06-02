@@ -1,22 +1,23 @@
 import pandas as pd
 import streamlit as st
-from src.reviews_summary import get_review_summary
+from customer_reviews.reviews_summary import get_review_summary
 
 # displaying page title and header
-st.title("User Inputs for e-Commerce Customer Reviews")
+st.title("Amazon Customer Review Engine")
 st.header("Please provide the requested information")
 
 # develop form
 with st.form(key="user_interaction"):
     # get name of product in couple to few words
     prod_query = st.text_input(
-        label = "Please describe your product in 2-5 phrases",
-        max_chars = 30)
+        label = "Please describe your product in a couple of words",
+        max_chars = 30
+    )
 
     # get number of total customer reviews to process
     cust_count = st.slider(
         label="Select maximum number of Amazon customer reviews to be collected",
-        max_value=50,
+        max_value=25,
         min_value=10,
         step=5,
         key = "max_cust"
