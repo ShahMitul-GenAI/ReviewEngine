@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from cust_reviews_summary import get_review_summary
+from src.reviews_summary import get_review_summary
 
 # displaying page title and header
 st.title("User Inputs for e-Commerce Customer Reviews")

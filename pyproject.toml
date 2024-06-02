@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "reviewengine"
+version = "0.1.0"
+description = "Summarize select number of Amazon customers' reviews for a given product."
+authors = ["ShahMitul-GenAI <replymitul@outlook.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "3.9 & Above"
+tiktoken = "^0.7.0"
+pandas = "^2.2.2"
+python-dotenv = "^1.0.1"
+langchain = "^0.2.1"
+langchain-openai = "^0.1.8"
+selenium = "^4.21.0"
+BeautifulSoup = "^3.2.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
