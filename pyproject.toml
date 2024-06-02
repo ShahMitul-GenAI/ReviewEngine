@@ -6,7 +6,7 @@ authors = ["ShahMitul-GenAI <replymitul@outlook.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "3.9 & Above"
+python = "^3.9"
 tiktoken = "^0.7.0"
 pandas = "^2.2.2"
 python-dotenv = "^1.0.1"
