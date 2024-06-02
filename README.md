@@ -11,12 +11,6 @@ This project automates the process of harvesting and summarizing Amazon customer
 
 ## Getting Started
 
-### Prerequisites
-
-- Python 3.x
-- An OpenAI API key
-- An Amazon Product Advertising API key
-
 ### Installation
 
 1. Clone the repository:
