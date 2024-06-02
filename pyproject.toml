@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Summarize select number of Amazon customers' reviews for a given product."
 authors = ["ShahMitul-GenAI <replymitul@outlook.com>"]
 readme = "README.md"
+packages = [{include = "customer_reviews"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
