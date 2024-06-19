@@ -126,24 +126,52 @@ class AmazonScraper:
             print(f"{round(end - start, 2)} seconds taken")
 
         return reviews
+
+    def get_product_reviews_by_asin(self, product_asin: str, num_reviews: int, headless: bool = True, debug: bool = False):
+        if len(product_asin) == 0:
+            raise ValueError(f'ASIN provided is an empty string')
+
+        if debug:
+            start = time.time()
+
+        reviews = self.__get_reviews(asin = product_asin, num_reviews = num_reviews, headless = headless)
+
+        if debug:
+            end = time.time()
+            print(f"{round(end - start, 2)} seconds taken")
+
+        return reviews
     
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog='AmazonScraper', description='Fetch Amazon product reviews based on a search query.')
-    parser.add_argument('query', type=str, help='Product search query to fetch reviews for')
-    parser.add_argument('num_reviews', type=int, help='Number of reviews to fetch')
+    parser = argparse.ArgumentParser(prog='AmazonScraper', description='Fetch Amazon product reviews based on a search query or ASIN.')
 
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--query', type=str, help='Product search query to fetch reviews for')
+    group.add_argument('--asin', type=str, help='Product ASIN to fetch reviews for')
+    parser.add_argument('num_reviews', type=int, help='Number of reviews to fetch')
+    
     # optional flags
     parser.add_argument('--headless', action='store_true', help='Run browser in headless mode', default=True)
     parser.add_argument('--debug', action='store_true', help='Enable debug output', default=False)
 
     args = parser.parse_args()
-    # print(args)
 
     scraper = AmazonScraper()
-    reviews = scraper.get_closest_product_reviews(
-        search_query=args.query, 
-        num_reviews=10, 
-        headless=args.headless, 
-        debug=args.debug
-    )
-    print(reviews)
+    
+    if args.query:
+        reviews = scraper.get_closest_product_reviews(
+            search_query=args.query, 
+            num_reviews=args.num_reviews, 
+            headless=args.headless, 
+            debug=args.debug
+        )
+    elif args.asin:
+        reviews = scraper.get_product_reviews_by_asin(
+            product_asin=args.asin, 
+            num_reviews=args.num_reviews, 
+            headless=args.headless, 
+            debug=args.debug
+        )
+
+    for review in reviews:
+        print(review, end='\n\n')

@@ -5,7 +5,7 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain.chains import LLMChain
 from langchain_openai import ChatOpenAI
-from customer_reviews.amazon_scraper import AmazonScraper
+from customer_reviews.amazon_scraper_rev import AmazonScraper
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -134,11 +134,14 @@ def refine_method_summary(split_docs) -> str:
     return cust_review_summary_refine
 
 
-def get_review_summary(prod_query: str, cust_count: int) -> tuple[int, Any, str, str, str]:
+def get_review_summary(inp_opt: str, prod_query: str, cust_count: int) -> tuple[int, Any, str, str, str]:
     
     # getting amazon customer reviews using amazon scrapper
     scraper = AmazonScraper()
-    cust_reviews = scraper.get_closest_product_reviews(str(prod_query), num_reviews = cust_count, debug=False)
+    if inp_opt == "DESC":
+        cust_reviews = scraper.get_closest_product_reviews(str(prod_query), num_reviews = cust_count, debug=False)
+    else:
+        cust_reviews = scraper.get_product_reviews_by_asin(str(prod_query), num_reviews = cust_count, debug=False)
 
     # generating df from the scrap data
     df = pd.DataFrame.from_dict(cust_reviews)

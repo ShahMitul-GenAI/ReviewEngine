@@ -8,27 +8,48 @@ st.header("Please provide the requested information")
 
 # develop form
 with st.form(key="user_interaction"):
-    # get name of product in couple to few words
-    prod_query = st.text_input(
-        label = "Please describe your product in a couple of words",
-        max_chars = 30
-    )
+    
+    #select your product input option
+    input_options = st.empty()
+    prodcut_query = st.empty()  
 
     # get number of total customer reviews to process
     cust_count = st.slider(
         label="Select maximum number of Amazon customer reviews to be collected",
-        max_value=25,
+        max_value=200,
         min_value=10,
         step=5,
         key = "max_cust"
     )
     submit_button = st.form_submit_button("Submit")
 
+# setting up product query fields based on the input selection option
+with input_options: 
+
+    inp_opt = st.radio(
+        label = "Please select your product selection option.",
+        options = ["ASIN", "DESC"],
+        captions = ["I have a product ASIN", "I will use most relevant product phrases"]
+    )
+
+with prodcut_query: 
+   
+    input_selection = dict(
+        ASIN = ["Please input your product ASIN: ", 10 ],
+        DESC = ["Please describe your product in a couple of words: ", 50]
+        )
+    
+    prod_query = st.text_input(
+    label = input_selection[inp_opt][0],
+    max_chars = input_selection[inp_opt][1]
+
+    )
+
 if submit_button:
     
     with st.spinner("Processing your data now...."):
         # getting outputs now 
-        tokens, df_reviews, summary_small, summary_map, summary_refine = get_review_summary(prod_query, cust_count)
+        tokens, df_reviews, summary_small, summary_map, summary_refine = get_review_summary(inp_opt, prod_query, cust_count)
         
         # displaying customer reviews in dataframe format 
         df = df_reviews.head(10)
