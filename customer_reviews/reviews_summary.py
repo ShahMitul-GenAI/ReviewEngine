@@ -5,7 +5,7 @@ from typing import Any
 from dotenv import load_dotenv
 from langchain.chains import LLMChain
 from langchain_openai import ChatOpenAI
-from customer_reviews.amazon_scraper_rev import AmazonScraper
+from customer_reviews.amazon_scraper import AmazonScraper
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
 from langchain.text_splitter import RecursiveCharacterTextSplitter

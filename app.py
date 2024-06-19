@@ -28,7 +28,7 @@ with input_options:
 
     inp_opt = st.radio(
         label = "Please select your product selection option.",
-        options = ["ASIN", "DESC"],
+        options = ["ASIN", "Description"],
         captions = ["I have a product ASIN", "I will use most relevant product phrases"]
     )
 
@@ -36,7 +36,7 @@ with prodcut_query:
    
     input_selection = dict(
         ASIN = ["Please input your product ASIN: ", 10 ],
-        DESC = ["Please describe your product in a couple of words: ", 50]
+        Description = ["Please describe your product in a couple of words: ", 50]
         )
     
     prod_query = st.text_input(
