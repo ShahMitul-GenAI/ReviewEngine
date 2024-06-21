@@ -3,7 +3,7 @@ import streamlit as st
 from customer_reviews.reviews_summary import get_review_summary
 
 # displaying page title and header
-st.title("Amazon Customer Review Engine")
+st.title("E-Commerce Customer Review Engine")
 st.header("Please provide the requested information")
 
 # develop form
@@ -66,15 +66,15 @@ if submit_button:
 
     else:
         # for larger review content
-        st.markdown(" ### The Customer Reviews content is large. It warrants the use of 'Map Reduce' and 'Refine Method' for summary generation. \n")
+        st.markdown(" ##### The Customer Reviews content is large. It warrants the use of 'Map Reduce' and 'Refine Method' for summary generation. \n")
         
         # displaying Map Reduce customer review summary
         st.markdown(" ### The customer reviews summary using Map Reduce Method: \n")
-        st.write(summary_map)
+        st.write(summary_map["output_text"])
 
         # displaying Refine Method customer review summary
-        st.markdown(" ### ### The customer reviews summary using Refine Method:: \n")
-        st.write(summary_refine)
+        st.markdown(" ### The customer reviews summary using Refine Method:: \n")
+        st.write(summary_refine["output_text"])
 
 
 

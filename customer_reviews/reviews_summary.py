@@ -1,12 +1,15 @@
 import os
 import tiktoken
+import numpy as np
 import pandas as pd
 from typing import Any
 from dotenv import load_dotenv
-from langchain.chains import LLMChain
+from string import ascii_lowercase
 from langchain_openai import ChatOpenAI
-from customer_reviews.amazon_scraper import AmazonScraper
 from langchain.prompts import PromptTemplate
+from langchain.docstore.document import Document
+from customer_reviews.amazon_scraper import AmazonScraper
+from langchain.chains import LLMChain, StuffDocumentsChain
 from langchain.chains.summarize import load_summarize_chain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import MapReduceDocumentsChain, ReduceDocumentsChain
@@ -45,7 +48,10 @@ def small_reviews_summary(cust_reviews: str) -> str:
 # split large reviews
 def document_split(cust_reviews: str, chunk_size: int, chunk_overlap: int) -> Any:
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap, separators=["\n\n", "\n", " ", ""])
-    split_docs = text_splitter.split_documents(cust_reviews)
+    
+    # converting string into a document object
+    docs = [Document(page_content = t) for t in cust_reviews.split('\n')]
+    split_docs = text_splitter.split_documents(docs)
     return split_docs
 
 # Applying map reduce to summarize large document
@@ -124,7 +130,7 @@ def refine_method_summary(split_docs) -> str:
         chain_type="refine",
         question_prompt=question_prompt,
         refine_prompt=refine_prompt,
-        return_intermediate_steps=True,
+        return_intermediate_steps=False,
         input_key="input_text",
     output_key="output_text",
     )
@@ -138,7 +144,7 @@ def get_review_summary(inp_opt: str, prod_query: str, cust_count: int) -> tuple[
     
     # getting amazon customer reviews using amazon scrapper
     scraper = AmazonScraper()
-    if inp_opt == "DESC":
+    if inp_opt == "Description":
         cust_reviews = scraper.get_closest_product_reviews(str(prod_query), num_reviews = cust_count, debug=False)
     else:
         cust_reviews = scraper.get_product_reviews_by_asin(str(prod_query), num_reviews = cust_count, debug=False)
@@ -147,6 +153,11 @@ def get_review_summary(inp_opt: str, prod_query: str, cust_count: int) -> tuple[
     df = pd.DataFrame.from_dict(cust_reviews)
     df.sort_values(by=["rating"], ascending=False, inplace=True)
     df.reset_index(inplace=True)
+
+    # masking customer names to comply with Amazon privacy policy & removing original user names
+    df.customer_name = df.join(df.groupby('customer_name')['customer_name'].apply(lambda x: 
+    ''.join(np.random.choice(list(ascii_lowercase), 10))), on='customer_name', rsuffix='_NEW')['customer_name_NEW']
+    df = df.rename(columns={'customer_name': 'masked_customers'})
 
     # extracting customer reviews from the df in string format 
     amz_cust_reviews = df["review"]
