@@ -73,7 +73,7 @@ if submit_button:
         st.write(summary_map["output_text"])
 
         # displaying Refine Method customer review summary
-        st.markdown(" ### The customer reviews summary using Refine Method:: \n")
+        st.markdown(" ### The customer reviews summary using Refine Method: \n")
         st.write(summary_refine["output_text"])
 
 
