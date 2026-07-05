@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
-from customer_reviews.reviews_summary import get_review_summary
+from customer_reviews.review_inputs import normalize_review_dataframe
+from customer_reviews.reviews_summary import get_review_summary, get_review_summary_from_dataframe
 
 # displaying page title and header
 st.title("E-Commerce Customer Review Engine")
@@ -28,28 +29,53 @@ with input_options:
 
     inp_opt = st.radio(
         label = "Please select your product selection option.",
-        options = ["ASIN", "Description"],
-        captions = ["I have a product ASIN", "I will use most relevant product phrases"]
+        options = ["ASIN", "Description", "CSV Export"],
+        captions = [
+            "I have a product ASIN",
+            "I will use most relevant product phrases",
+            "I will upload reviews, feedback, comments, or Xquik Tweet Text",
+        ]
     )
 
 with prodcut_query: 
-   
-    input_selection = dict(
-        ASIN = ["Please input your product ASIN: ", 10 ],
-        Description = ["Please describe your product in a couple of words: ", 50]
-        )
-    
-    prod_query = st.text_input(
-    label = input_selection[inp_opt][0],
-    max_chars = input_selection[inp_opt][1]
 
-    )
+    uploaded_reviews = None
+    prod_query = ""
+    if inp_opt == "CSV Export":
+        uploaded_reviews = st.file_uploader(
+            "Upload CSV with review, feedback, comment, text, or Xquik Tweet Text",
+            type=["csv"],
+        )
+    else:
+        input_selection = dict(
+            ASIN = ["Please input your product ASIN: ", 10 ],
+            Description = ["Please describe your product in a couple of words: ", 50]
+            )
+
+        prod_query = st.text_input(
+        label = input_selection[inp_opt][0],
+        max_chars = input_selection[inp_opt][1]
+
+        )
 
 if submit_button:
     
     with st.spinner("Processing your data now...."):
         # getting outputs now 
-        tokens, df_reviews, summary_small, summary_map, summary_refine = get_review_summary(inp_opt, prod_query, cust_count)
+        if inp_opt == "CSV Export":
+            if uploaded_reviews is None:
+                st.error("Upload a CSV file before submitting.")
+                st.stop()
+            try:
+                uploaded_df, uploaded_schema = normalize_review_dataframe(pd.read_csv(uploaded_reviews))
+            except ValueError as error:
+                st.error(str(error))
+                st.stop()
+            if uploaded_schema.dropped_rows:
+                st.info(f"Ignored {uploaded_schema.dropped_rows} empty review row(s).")
+            tokens, df_reviews, summary_small, summary_map, summary_refine = get_review_summary_from_dataframe(uploaded_df)
+        else:
+            tokens, df_reviews, summary_small, summary_map, summary_refine = get_review_summary(inp_opt, prod_query, cust_count)
         
         # displaying customer reviews in dataframe format 
         df = df_reviews.head(10)
@@ -75,9 +101,6 @@ if submit_button:
         # displaying Refine Method customer review summary
         st.markdown(" ### The customer reviews summary using Refine Method: \n")
         st.write(summary_refine["output_text"])
-
-
-
 
 
 
