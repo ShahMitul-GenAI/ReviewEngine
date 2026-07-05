@@ -13,6 +13,7 @@ from langchain.chains import LLMChain, StuffDocumentsChain
 from langchain.chains.summarize import load_summarize_chain
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import MapReduceDocumentsChain, ReduceDocumentsChain
+from customer_reviews.review_inputs import normalize_review_dataframe
 
 # packages for print output notifications
 from io import StringIO
@@ -140,28 +141,32 @@ def refine_method_summary(split_docs) -> str:
     return cust_review_summary_refine
 
 
-def get_review_summary(inp_opt: str, prod_query: str, cust_count: int) -> tuple[int, Any, str, str, str]:
-    
-    # getting amazon customer reviews using amazon scrapper
-    scraper = AmazonScraper()
-    if inp_opt == "Description":
-        cust_reviews = scraper.get_closest_product_reviews(str(prod_query), num_reviews = cust_count, debug=False)
-    else:
-        cust_reviews = scraper.get_product_reviews_by_asin(str(prod_query), num_reviews = cust_count, debug=False)
+def _prepare_review_dataframe(cust_reviews: Any) -> pd.DataFrame:
+    df, _schema = normalize_review_dataframe(pd.DataFrame.from_dict(cust_reviews))
+    if "rating" not in df.columns:
+        return df
 
-    # generating df from the scrap data
-    df = pd.DataFrame.from_dict(cust_reviews)
     df.sort_values(by=["rating"], ascending=False, inplace=True)
-    df.reset_index(inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    return df
+
+
+def _mask_customer_names(df: pd.DataFrame) -> pd.DataFrame:
+    if "customer_name" not in df.columns:
+        return df
 
     # masking customer names to comply with Amazon privacy policy & removing original user names
     df.customer_name = df.join(df.groupby('customer_name')['customer_name'].apply(lambda x: 
     ''.join(np.random.choice(list(ascii_lowercase), 10))), on='customer_name', rsuffix='_NEW')['customer_name_NEW']
-    df = df.rename(columns={'customer_name': 'masked_customers'})
+    return df.rename(columns={'customer_name': 'masked_customers'})
+
+
+def _summarize_review_dataframe(df: pd.DataFrame) -> tuple[int, pd.DataFrame, str, str, str]:
+    df = _mask_customer_names(df)
 
     # extracting customer reviews from the df in string format 
     amz_cust_reviews = df["review"]
-    amz_reviews_str = "".join(each for each in amz_cust_reviews)
+    amz_reviews_str = "\n".join(str(each) for each in amz_cust_reviews)
 
     # Checking review length
     total_tokens = count_tokens(str(amz_reviews_str), "cl100k_base")
@@ -177,3 +182,21 @@ def get_review_summary(inp_opt: str, prod_query: str, cust_count: int) -> tuple[
         cust_review_summary = "N.A."
 
     return total_tokens, df, cust_review_summary, cust_review_summary_map, cust_review_summary_refine
+
+
+def get_review_summary_from_dataframe(df: pd.DataFrame) -> tuple[int, pd.DataFrame, str, str, str]:
+    review_df = _prepare_review_dataframe(df)
+    return _summarize_review_dataframe(review_df)
+
+
+def get_review_summary(inp_opt: str, prod_query: str, cust_count: int) -> tuple[int, Any, str, str, str]:
+
+    # getting amazon customer reviews using amazon scrapper
+    scraper = AmazonScraper()
+    if inp_opt == "Description":
+        cust_reviews = scraper.get_closest_product_reviews(str(prod_query), num_reviews = cust_count, debug=False)
+    else:
+        cust_reviews = scraper.get_product_reviews_by_asin(str(prod_query), num_reviews = cust_count, debug=False)
+
+    df = _prepare_review_dataframe(cust_reviews)
+    return _summarize_review_dataframe(df)
